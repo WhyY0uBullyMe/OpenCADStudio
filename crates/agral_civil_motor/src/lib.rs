@@ -3,6 +3,7 @@
 //! Sem tela e sem o Open CAD Studio: só `std` e `spade`. A ligação com o desenho fica no pacote `agral.civil`.
 //! Spec: Hydrus `docs/specs/agral-cad/001-superficie/spec.md`.
 
+pub mod correcao;
 pub mod diagnostico;
 pub mod landxml;
 pub mod pontos;

@@ -145,6 +145,19 @@ fn main() {
     let vertices: usize = linhas.iter().map(|l| l.len()).sum();
     println!("usadas: {} polilinhas, {} vértices", linhas.len(), vertices);
 
+    // CORRIGIR=1: corrige os cruzamentos (R18) antes de montar.
+    if std::env::var("CORRIGIR").is_ok() {
+        let t = Instant::now();
+        let r = agral_civil_motor::correcao::corrigir_cruzamentos(&linhas, &Default::default());
+        println!(
+            "correção: {} lentes separadas, {} trechos cortados, {} rodadas, {} curvas alteradas, sobraram {} cruzamentos, em {:?}",
+            r.lentes_separadas, r.trechos_cortados, r.rodadas, r.alteradas.len(), r.restantes, t.elapsed()
+        );
+        let antes: f64 = linhas.iter().map(|l| l.windows(2).map(|w| ((w[0][0]-w[1][0]).powi(2)+(w[0][1]-w[1][1]).powi(2)).sqrt()).sum::<f64>()).sum();
+        let depois: f64 = r.curvas.iter().map(|l| l.windows(2).map(|w| ((w[0][0]-w[1][0]).powi(2)+(w[0][1]-w[1][1]).powi(2)).sqrt()).sum::<f64>()).sum();
+        println!("comprimento total das curvas: antes {antes:.1} m, depois {depois:.1} m");
+        linhas = r.curvas;
+    }
     let mut s = Superficie::nova("TN", caminho);
     s.acrescentar(ItemDefinicao::curvas(caminho, linhas.clone()));
     if let Ok(lim) = std::env::var("LIMITE") {
