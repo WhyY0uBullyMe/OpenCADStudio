@@ -60,6 +60,7 @@ fn nenhum_triangulo_cruza_uma_curva_de_nivel() {
     assert!(r.avisos.is_empty(), "{:?}", r.avisos);
     let cruzamentos = arestas_que_cruzam(&r.tin, &curvas);
     assert_eq!(cruzamentos, 0);
+    assert_eq!(agral_civil_motor::tin::contar_cruzamentos(&r.tin, &curvas), 0);
 }
 
 #[test]
@@ -71,6 +72,8 @@ fn sem_linha_de_quebra_a_delaunay_pura_cruzaria_as_curvas() {
     s.acrescentar(ItemDefinicao::pontos("curvas como pontos", curvas.iter().flatten().copied().collect()));
     let r = s.montar();
     assert!(arestas_que_cruzam(&r.tin, &curvas) > 0);
+    // A conferência rápida da biblioteca acha o mesmo problema.
+    assert!(agral_civil_motor::tin::contar_cruzamentos(&r.tin, &curvas) > 0);
 }
 
 #[test]

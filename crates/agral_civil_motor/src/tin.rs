@@ -170,3 +170,67 @@ pub fn segmentos_se_cruzam(a: P3, b: P3, c: P3, d: P3) -> bool {
     let (d1, d2, d3, d4) = (o(a, b, c), o(a, b, d), o(c, d, a), o(c, d, b));
     ((d1 > tol && d2 < -tol) || (d1 < -tol && d2 > tol)) && ((d3 > tol && d4 < -tol) || (d3 < -tol && d4 > tol))
 }
+
+/// Quantas arestas de triângulo cruzam algum trecho das `linhas` (conferência do critério 2 da spec).
+/// Usa grade de trechos: serve para milhões de triângulos.
+pub fn contar_cruzamentos(tin: &Tin, linhas: &[Vec<P3>]) -> usize {
+    let trechos: Vec<(P3, P3)> = linhas.iter().flat_map(|l| l.windows(2).map(|w| (w[0], w[1]))).collect();
+    if trechos.is_empty() || tin.triangulos.is_empty() {
+        return 0;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for (a, b) in &trechos {
+        for p in [a, b] {
+            x0 = x0.min(p[0]);
+            y0 = y0.min(p[1]);
+            x1 = x1.max(p[0]);
+            y1 = y1.max(p[1]);
+        }
+    }
+    let n = ((trechos.len() as f64).sqrt() as usize).clamp(1, 2048);
+    let (lx, ly) = (((x1 - x0) / n as f64).max(1e-9), ((y1 - y0) / n as f64).max(1e-9));
+    let cel = |x: f64, y: f64| {
+        let i = (((x - x0) / lx).floor().max(0.0) as usize).min(n - 1);
+        let j = (((y - y0) / ly).floor().max(0.0) as usize).min(n - 1);
+        (i, j)
+    };
+    let mut grade: Vec<Vec<u32>> = vec![Vec::new(); n * n];
+    for (k, (a, b)) in trechos.iter().enumerate() {
+        let (i0, j0) = cel(a[0].min(b[0]), a[1].min(b[1]));
+        let (i1, j1) = cel(a[0].max(b[0]), a[1].max(b[1]));
+        for j in j0..=j1 {
+            for i in i0..=i1 {
+                grade[j * n + i].push(k as u32);
+            }
+        }
+    }
+    let mut arestas: Vec<(u32, u32)> = tin
+        .triangulos
+        .iter()
+        .flat_map(|t| (0..3).map(move |k| (t[k].min(t[(k + 1) % 3]), t[k].max(t[(k + 1) % 3]))))
+        .collect();
+    arestas.sort_unstable();
+    arestas.dedup();
+    let mut total = 0;
+    let mut vistos: Vec<u32> = Vec::new();
+    for (a, b) in arestas {
+        let (p, q) = (tin.vertices[a as usize], tin.vertices[b as usize]);
+        if p[0].max(q[0]) < x0 || p[0].min(q[0]) > x1 || p[1].max(q[1]) < y0 || p[1].min(q[1]) > y1 {
+            continue;
+        }
+        let (i0, j0) = cel(p[0].min(q[0]), p[1].min(q[1]));
+        let (i1, j1) = cel(p[0].max(q[0]), p[1].max(q[1]));
+        vistos.clear();
+        for j in j0..=j1 {
+            for i in i0..=i1 {
+                vistos.extend_from_slice(&grade[j * n + i]);
+            }
+        }
+        vistos.sort_unstable();
+        vistos.dedup();
+        if vistos.iter().any(|&k| segmentos_se_cruzam(p, q, trechos[k as usize].0, trechos[k as usize].1)) {
+            total += 1;
+        }
+    }
+    total
+}

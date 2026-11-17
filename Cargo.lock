@@ -153,6 +153,7 @@ dependencies = [
 name = "agral_civil_motor"
 version = "0.1.0"
 dependencies = [
+ "acadrust",
  "roxmltree",
  "spade",
 ]

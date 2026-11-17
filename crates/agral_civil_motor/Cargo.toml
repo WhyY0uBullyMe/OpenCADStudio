@@ -11,3 +11,7 @@ publish = false
 spade = "2.15.1"
 # Já no Cargo.lock do Open CAD Studio (MIT ou Apache 2.0).
 roxmltree = "0.20"
+
+[dev-dependencies]
+# Leitor de DWG e DXF que o Open CAD Studio já usa (MPL 2.0), só para a ferramenta de conferência.
+acadrust = { git = "https://github.com/hakanaktt/acadrust.git", rev = "528917c012cd89386795543a348a29844602a99b" }
