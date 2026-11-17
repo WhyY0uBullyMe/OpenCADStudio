@@ -208,3 +208,25 @@ fn distancia_a_polilinha(p: &P3, linha: &[P3]) -> f64 {
         })
         .fold(f64::INFINITY, f64::min)
 }
+
+#[test]
+fn curva_repetida_nao_e_conflito() {
+    // Mesma curva desenhada duas vezes (e uma ao contrário): comum em DWG de levantamento.
+    let c = vec![[0.0, 0.0, 10.0], [10.0, 1.0, 10.0], [20.0, 0.0, 10.0]];
+    let mut inv = c.clone();
+    inv.reverse();
+    let mut s = Superficie::nova("TN", "");
+    s.acrescentar(ItemDefinicao::curvas("dup", vec![c.clone(), c, inv, vec![[0.0, 10.0, 11.0], [20.0, 10.0, 11.0]]]));
+    let r = s.montar();
+    assert!(r.avisos.is_empty(), "{:?}", r.avisos);
+}
+
+#[test]
+fn trecho_de_curva_que_volta_por_cima_dela_mesma_nao_trava() {
+    // Vértice intermediário colinear e trecho sobreposto (vai e volta na mesma reta).
+    let c = vec![[0.0, 0.0, 10.0], [10.0, 0.0, 10.0], [5.0, 0.0, 10.0], [20.0, 0.0, 10.0]];
+    let mut s = Superficie::nova("TN", "");
+    s.acrescentar(ItemDefinicao::curvas("volta", vec![c, vec![[0.0, 10.0, 11.0], [20.0, 10.0, 11.0]]]));
+    let r = s.montar();
+    assert!(r.tin.triangulos.len() > 0);
+}

@@ -22,6 +22,11 @@ fn main() {
     let mut por_tipo: BTreeMap<String, usize> = BTreeMap::new();
     let mut por_camada: BTreeMap<String, (usize, usize, f64, f64)> = BTreeMap::new();
     let mut normais_fora = 0;
+    // VERTICES=controle: usa o polígono de controle da spline em vez da curva suavizada.
+    let usar_controle = std::env::var("VERTICES").is_ok_and(|v| v == "controle");
+    let mut sem_ajuste = 0;
+    let mut flags_pl: BTreeMap<u16, usize> = BTreeMap::new();
+    let mut flags_v: BTreeMap<u8, usize> = BTreeMap::new();
     let mut linhas: Vec<Vec<[f64; 3]>> = Vec::new();
     for e in doc.model_space_entities() {
         let nome = format!("{:?}", e).split('(').next().unwrap_or("?").to_string();
@@ -41,7 +46,27 @@ fn main() {
                 if (p.normal.z - 1.0).abs() > 1e-9 {
                     normais_fora += 1;
                 }
-                (p.common.layer.clone(), p.vertices.iter().map(|q| [q.location.x, q.location.y, p.elevation]).collect())
+                *flags_pl.entry(p.flags.bits()).or_default() += 1;
+                for q in &p.vertices {
+                    *flags_v.entry(q.flags.bits()).or_default() += 1;
+                }
+                // Vértice de controle de spline não é ponto da curva (fica fora dela).
+                let mut v: Vec<[f64; 3]> = p
+                    .vertices
+                    .iter()
+                    .filter(|q| {
+                        let controle = q.flags.bits() & 16 != 0;
+                        if usar_controle { controle || p.flags.bits() & 4 == 0 } else { !controle }
+                    })
+                    .map(|q| [q.location.x, q.location.y, p.elevation])
+                    .collect();
+                if v.is_empty() && !p.vertices.is_empty() {
+                    sem_ajuste += 1;
+                }
+                if p.flags.bits() & 1 != 0 && v.len() > 2 {
+                    v.push(v[0]);
+                }
+                (p.common.layer.clone(), v)
             }
             EntityType::Polyline3D(p) => {
                 (p.common.layer.clone(), p.vertices.iter().map(|q| [q.position.x, q.position.y, q.position.z]).collect())
@@ -64,6 +89,30 @@ fn main() {
     }
     println!("entidades por tipo: {por_tipo:?}");
     println!("normais diferentes de +Z: {normais_fora}");
+    println!("polilinhas spline sem vértices de ajuste: {sem_ajuste}");
+    let diag = agral_civil_motor::diagnostico::diagnosticar_curvas(&linhas);
+    let difer = diag.cruzamentos.iter().filter(|c| (c.cota_a - c.cota_b).abs() > 1e-6).count();
+    let mut pares: Vec<(usize, usize)> = diag.cruzamentos.iter().map(|c| (c.curva_a, c.curva_b)).collect();
+    pares.sort();
+    pares.dedup();
+    println!(
+        "diagnóstico: {} cruzamentos ({} entre cotas diferentes, {} na mesma cota), {} pares de curvas, {} curvas não planas",
+        diag.cruzamentos.len(), difer, diag.cruzamentos.len() - difer, pares.len(), diag.curvas_nao_planas.len()
+    );
+    for c in diag.cruzamentos.iter().take(4) {
+        println!("  {:.2} x {:.2} em {:.2} {:.2}", c.cota_a, c.cota_b, c.ponto[0], c.ponto[1]);
+    }
+    println!("marcas das polilinhas 2D: {flags_pl:?}; marcas dos vértices: {flags_v:?}");
+    let mut maior = (0.0f64, 0usize, 0usize);
+    for (k, l) in linhas.iter().enumerate() {
+        for (i, w) in l.windows(2).enumerate() {
+            let d = ((w[0][0] - w[1][0]).powi(2) + (w[0][1] - w[1][1]).powi(2)).sqrt();
+            if d > maior.0 {
+                maior = (d, k, i);
+            }
+        }
+    }
+    println!("maior trecho: {:.1} m, polilinha {} ({} vértices), trecho {}", maior.0, maior.1, linhas.get(maior.1).map_or(0, |l| l.len()), maior.2);
     for (k, (n, v, z0, z1)) in &por_camada {
         println!("camada {k}: {n} polilinhas, {v} vértices, cota {z0:.3} a {z1:.3}");
     }
@@ -79,6 +128,16 @@ fn main() {
     }
     if let Ok(m) = std::env::var("MAXLADO") {
         s.opcoes.comprimento_maximo = m.parse().ok();
+    }
+    let m = s.montar();
+    if !m.trechos_em_conflito.is_empty() {
+        let comp = |c: &[[f64; 3]; 2]| ((c[0][0] - c[1][0]).powi(2) + (c[0][1] - c[1][1]).powi(2)).sqrt();
+        let mut ls: Vec<f64> = m.trechos_em_conflito.iter().map(comp).collect();
+        ls.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!("trechos em conflito: {}, comprimento mediano {:.3} m, máximo {:.3} m", ls.len(), ls[ls.len() / 2], ls[ls.len() - 1]);
+        for c in m.trechos_em_conflito.iter().take(5) {
+            println!("  {:.3} {:.3} {:.2} -> {:.3} {:.3} {:.2}", c[0][0], c[0][1], c[0][2], c[1][0], c[1][1], c[1][2]);
+        }
     }
     let t = Instant::now();
     let avisos = s.refazer();
@@ -126,6 +185,39 @@ fn main() {
         "curvas geradas x entrada: {} cotas, {} pontos, desvio médio {:.4} m, {} pontos acima de 0,125 m, pior {:.4} m em {:.2} {:.2} {:.2}",
         por_cota.len(), n, soma / n.max(1) as f64, fora, pior, pior_onde[0], pior_onde[1], pior_onde[2]
     );
+    // CIVIL3D=<LandXML exportado do Civil 3D>: compara cotas ponto a ponto (critério 4: 1 cm no interior).
+    if let Ok(xml) = std::env::var("CIVIL3D") {
+        let t = Instant::now();
+        let texto = std::fs::read_to_string(&xml).expect("ler LandXML");
+        let c3d = agral_civil_motor::landxml::ler_superficies(&texto).expect("LandXML");
+        drop(texto);
+        let c = &c3d[0].tin;
+        println!("Civil 3D: {} vértices, {} triângulos (lido em {:?})", c.vertices.len(), c.triangulos.len(), t.elapsed());
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for v in &c.vertices {
+            x0 = x0.min(v[0]); y0 = y0.min(v[1]); x1 = x1.max(v[0]); y1 = y1.max(v[1]);
+        }
+        let mut difs: Vec<f64> = Vec::new();
+        let passo = ((x1 - x0) * (y1 - y0) / 200_000.0).sqrt();
+        let mut y = y0 + passo / 2.0;
+        while y < y1 {
+            let mut x = x0 + passo / 2.0;
+            while x < x1 {
+                if let (Some(a), Some(b)) = (c.cota_em(x, y), s.tin.cota_em(x, y)) {
+                    difs.push((a - b).abs());
+                }
+                x += passo;
+            }
+            y += passo;
+        }
+        difs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let q = |f: f64| difs[((difs.len() - 1) as f64 * f) as usize];
+        let ate1cm = difs.iter().filter(|d| **d <= 0.01).count();
+        println!(
+            "comparação com o Civil 3D: {} pontos em grade de {:.1} m; até 1 cm: {:.1} %; mediana {:.3} m; 95 % {:.3} m; 99 % {:.3} m; máximo {:.3} m",
+            difs.len(), passo, 100.0 * ate1cm as f64 / difs.len() as f64, q(0.5), q(0.95), q(0.99), q(1.0)
+        );
+    }
     if let Some(saida) = args.get(3) {
         std::fs::write(saida, agral_civil_motor::landxml::escrever_superficie("TN", caminho, &s.tin)).unwrap();
         println!("LandXML gravado em {saida}");

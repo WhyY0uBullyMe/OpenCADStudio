@@ -79,6 +79,8 @@ pub struct Montagem {
     pub tin: Tin,
     /// Problemas achados nos dados (curvas cruzadas, pontos repetidos com cotas diferentes).
     pub avisos: Vec<String>,
+    /// Trechos de curva ou linha de quebra que ficaram de fora por cruzar outros (para mostrar no desenho).
+    pub trechos_em_conflito: Vec<[P3; 2]>,
 }
 
 impl Superficie {
@@ -151,24 +153,25 @@ impl Superficie {
             ));
         }
         if vertices.xyz.len() < 3 {
-            return Montagem { tin: Tin::default(), avisos };
+            return Montagem { tin: Tin::default(), avisos, ..Default::default() };
         }
 
         // Coordenadas locais: UTM tem números grandes; tirar a origem preserva a precisão do Delaunay.
         let (ox, oy) = (vertices.xyz[0][0].floor(), vertices.xyz[0][1].floor());
         let locais: Vec<Point2<f64>> = vertices.xyz.iter().map(|v| Point2::new(v[0] - ox, v[1] - oy)).collect();
-        let mut conflitos = 0usize;
+        let mut em_conflito: Vec<[usize; 2]> = Vec::new();
         let cdt = match ConstrainedDelaunayTriangulation::<Point2<f64>>::try_bulk_load_cdt(
             locais,
             restricoes,
-            |_| conflitos += 1,
+            |e| em_conflito.push(e),
         ) {
             Ok(c) => c,
             Err(e) => {
                 avisos.push(format!("não foi possível triangular: {e:?}"));
-                return Montagem { tin: Tin::default(), avisos };
+                return Montagem { tin: Tin::default(), avisos, ..Default::default() };
             }
         };
+        let conflitos = em_conflito.len();
         if conflitos > 0 {
             avisos.push(format!(
                 "{conflitos} trechos de curva ou linha de quebra cruzam outros e ficaram de fora; confira as curvas"
@@ -189,7 +192,8 @@ impl Superficie {
                 limites.iter().all(|l| dentro(c, l)) && !furos.iter().any(|f| dentro(c, f))
             });
         }
-        Montagem { tin: Tin::novo(xyz, tri), avisos }
+        let trechos_em_conflito = em_conflito.iter().map(|e| [xyz[e[0]], xyz[e[1]]]).collect();
+        Montagem { tin: Tin::novo(xyz, tri), avisos, trechos_em_conflito }
     }
 }
 
