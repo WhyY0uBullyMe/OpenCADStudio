@@ -102,6 +102,32 @@ fn main() {
     for c in diag.cruzamentos.iter().take(4) {
         println!("  {:.2} x {:.2} em {:.2} {:.2}", c.cota_a, c.cota_b, c.ponto[0], c.ponto[1]);
     }
+    // Pedaços abertos: distância da ponta até a ponta mais próxima de outro pedaço na mesma cota.
+    {
+        let abertas: Vec<usize> = (0..linhas.len())
+            .filter(|&k| {
+                let l = &linhas[k];
+                let (a, b) = (l[0], l[l.len() - 1]);
+                ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt() > 1e-3
+            })
+            .collect();
+        let pontas: Vec<(usize, [f64; 3])> = abertas.iter().flat_map(|&k| [(k, linhas[k][0]), (k, *linhas[k].last().unwrap())]).collect();
+        let mut faixas = [0usize; 6];
+        let nomes = ["até 1 mm", "1 mm a 10 cm", "10 cm a 1 m", "1 a 5 m", "5 a 20 m", "mais de 20 m ou nenhuma"];
+        for &(k, p) in &pontas {
+            let d = pontas
+                .iter()
+                .filter(|(o, q)| *o != k && (q[2] - p[2]).abs() < 1e-6)
+                .map(|(_, q)| ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2)).sqrt())
+                .fold(f64::INFINITY, f64::min);
+            let i = [0.001, 0.1, 1.0, 5.0, 20.0].iter().position(|&lim| d <= lim).unwrap_or(5);
+            faixas[i] += 1;
+        }
+        println!("pedaços abertos: {} de {}; pontas por distância até outro pedaço da mesma cota:", abertas.len(), linhas.len());
+        for (n, c) in nomes.iter().zip(faixas) {
+            println!("  {n}: {c}");
+        }
+    }
     println!("marcas das polilinhas 2D: {flags_pl:?}; marcas dos vértices: {flags_v:?}");
     let mut maior = (0.0f64, 0usize, 0usize);
     for (k, l) in linhas.iter().enumerate() {
