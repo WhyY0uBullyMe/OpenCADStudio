@@ -1,0 +1,14 @@
+[package]
+name = "agral_civil_pacote"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Agral Civil: comandos de civil do Agral CAD (pacote de fábrica do Open CAD Studio)."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ocs_plugin_api = { path = "../ocs_plugin_api", features = ["host"] }
+agral_civil_motor = { path = "../agral_civil_motor" }

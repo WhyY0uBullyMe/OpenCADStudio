@@ -1,0 +1,14 @@
+[plugin]
+id = "agral.civil"
+name = "Agral Civil"
+version = "0.1.0"
+description = "Superfícies, alinhamentos e corredores com os comandos do Civil 3D. Agral Engenharia."
+author = "Agral Engenharia"
+license = "GPL-3.0-only"
+repository = "WhyY0uBullyMe/OpenCADStudio"
+
+[opencad]
+api_version = 24
+ribbon_order = 10
+command_prefixes = ["CREATESURFACE", "ADDSURFACECONTOURS", "REBUILDSURFACE"]
+xdata_apps = ["AGRAL_CIVIL"]
