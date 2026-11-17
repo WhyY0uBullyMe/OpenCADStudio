@@ -12,6 +12,7 @@ performance-audit = []
 
 [workspace]
 members = [
+    "crates/agral_civil_motor",
     "crates/ocs_acis",
     "crates/ocs_plugin_api",
     "crates/ocs_save",

@@ -1,0 +1,13 @@
+[package]
+name = "agral_civil_motor"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Agral Civil: motor de superfície (TIN), sem tela. Testável sozinho."
+publish = false
+
+[dependencies]
+# Já está no Cargo.lock do Open CAD Studio (MIT ou Apache 2.0): nenhuma dependência nova na cadeia.
+spade = "2.15.1"
+# Já no Cargo.lock do Open CAD Studio (MIT ou Apache 2.0).
+roxmltree = "0.20"
