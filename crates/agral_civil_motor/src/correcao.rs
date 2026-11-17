@@ -1,6 +1,10 @@
 //! R18: corrigir curvas de nível que se cruzam. Objetivo do JP (17/11): "quero que ela não cruze, apenas isso".
 //!
 //! Método, repetido em rodadas até não sobrar cruzamento:
+//! 0. **Barriga (regra do JP, 17/11):** entre dois cruzamentos seguidos, uma das curvas faz uma barriga para dentro
+//!    da outra (em geral a de cima entrando na de baixo). A curva que mais se afasta do próprio caminho é a da
+//!    barriga: o trecho é cortado e refeito seguindo a direção que a curva tinha antes e depois dele (sem canto).
+//!    A outra curva não muda. Se a curva refeita ainda cruzar a outra, cai no passo 1.
 //! 1. **Lente:** entre dois cruzamentos seguidos das curvas A e B, as duas trocaram de lado. Nesse trecho as duas
 //!    passam a seguir a linha do meio entre elas, cada uma deslocada `folga` para o lado que tinha fora da lente.
 //!    Nenhuma das duas é tratada como a certa; fora da lente nada muda.
@@ -35,6 +39,7 @@ pub struct Correcao {
     pub alteradas: Vec<usize>,
     /// Curva de entrada de onde veio cada curva do resultado.
     pub origem: Vec<usize>,
+    pub barrigas_cortadas: usize,
     pub lentes_separadas: usize,
     pub trechos_cortados: usize,
     pub rodadas: usize,
@@ -50,6 +55,7 @@ pub fn corrigir_cruzamentos(entrada: &[Vec<P3>], op: &OpcoesCorrecao) -> Correca
     };
     let mut mudou = vec![false; entrada.len()];
     let mut rodada = 0;
+    let mut grade: Option<GradeTrechos> = None;
     loop {
         let diag = diagnosticar_curvas(&r.curvas);
         if diag.cruzamentos.is_empty() {
@@ -59,6 +65,12 @@ pub fn corrigir_cruzamentos(entrada: &[Vec<P3>], op: &OpcoesCorrecao) -> Correca
         let cortar_tudo = rodada > op.rodadas;
         let mut tocada = vec![false; r.curvas.len()];
         let mut progresso = false;
+        // Índice de todas as curvas, refeito de 10 em 10 rodadas (um índice velho só deixa passar cruzamento que a
+        // rodada seguinte acha de novo).
+        if grade.is_none() || rodada % 10 == 1 {
+            grade = Some(GradeTrechos::nova(&r.curvas));
+        }
+        let indice = grade.as_ref().unwrap();
 
         if !cortar_tudo {
             let mut pares: BTreeMap<(usize, usize), Vec<&Cruzamento>> = BTreeMap::new();
@@ -69,16 +81,25 @@ pub fn corrigir_cruzamentos(entrada: &[Vec<P3>], op: &OpcoesCorrecao) -> Correca
                 if tocada[a] || tocada[b] || cs.len() < 2 {
                     continue;
                 }
-                if let Some((na, nb)) = separar_lente(&r.curvas[a], &r.curvas[b], &cs, op.folga) {
-                    r.curvas[a] = na;
-                    r.curvas[b] = nb;
-                    tocada[a] = true;
-                    tocada[b] = true;
-                    mudou[a] = true;
-                    mudou[b] = true;
-                    r.lentes_separadas += 1;
-                    progresso = true;
+                match separar_lente(&r.curvas, a, b, &cs, op.folga, indice) {
+                    Some(Separacao::Barriga { em_a, curva }) => {
+                        let k = if em_a { a } else { b };
+                        r.curvas[k] = curva;
+                        mudou[r.origem[k]] = true;
+                        r.barrigas_cortadas += 1;
+                    }
+                    Some(Separacao::Lente(na, nb)) => {
+                        r.curvas[a] = na;
+                        r.curvas[b] = nb;
+                        mudou[r.origem[a]] = true;
+                        mudou[r.origem[b]] = true;
+                        r.lentes_separadas += 1;
+                    }
+                    None => continue,
                 }
+                tocada[a] = true;
+                tocada[b] = true;
+                progresso = true;
             }
         }
         if !progresso {
@@ -109,6 +130,8 @@ pub fn corrigir_cruzamentos(entrada: &[Vec<P3>], op: &OpcoesCorrecao) -> Correca
                 }
                 mudou[o] = true;
                 r.trechos_cortados += 1;
+                // Cortar muda os índices das curvas: o índice precisa ser refeito.
+                grade = None;
             }
         }
         if rodada > op.rodadas + 100_000 {
@@ -135,13 +158,209 @@ fn posicao(curva: &[P3], trecho: usize, p: P3) -> f64 {
     trecho as f64 + if l > 0.0 { (dist(curva[trecho], p) / l).clamp(0.0, 1.0) } else { 0.0 }
 }
 
-/// Separa a primeira lente válida do par (A, B). Devolve as duas curvas novas.
-fn separar_lente(a: &[P3], b: &[P3], cs: &[&Cruzamento], folga: f64) -> Option<(Vec<P3>, Vec<P3>)> {
+enum Separacao {
+    /// Só uma curva muda (a da barriga).
+    Barriga { em_a: bool, curva: Vec<P3> },
+    /// As duas mudam (linha do meio).
+    Lente(Vec<P3>, Vec<P3>),
+}
+
+/// Refaz o trecho da curva entre as posições `lo` e `hi` (o da lente) por uma curva de Hermite que liga o vértice
+/// antes ao vértice depois, com a direção que a curva tinha fora dele. Devolve a curva nova e o quanto o trecho
+/// antigo se afastava dela (o tamanho da barriga).
+fn refazer_trecho(c: &[P3], lo: f64, hi: f64) -> Option<(Vec<P3>, std::ops::Range<usize>, f64)> {
+    let (i0, i1) = (lo.floor() as usize, hi.floor() as usize + 1);
+    if i1 >= c.len() {
+        return None;
+    }
+    let (p0, p1) = (c[i0], c[i1]);
+    let corda = dist(p0, p1);
+    if corda <= 1e-9 {
+        return None;
+    }
+    let unit = |a: P3, b: P3| {
+        let l = dist(a, b).max(1e-12);
+        [(b[0] - a[0]) / l, (b[1] - a[1]) / l]
+    };
+    let t0 = if i0 > 0 { unit(c[i0 - 1], p0) } else { unit(p0, p1) };
+    let t1 = if i1 + 1 < c.len() { unit(p1, c[i1 + 1]) } else { unit(p0, p1) };
+    let n = (i1 - i0 + 1).max(4);
+    let novo: Vec<P3> = (0..n)
+        .map(|k| {
+            let t = k as f64 / (n - 1) as f64;
+            let (t2, t3) = (t * t, t * t * t);
+            let (h00, h10, h01, h11) = (2.0 * t3 - 3.0 * t2 + 1.0, t3 - 2.0 * t2 + t, -2.0 * t3 + 3.0 * t2, t3 - t2);
+            [
+                h00 * p0[0] + h10 * corda * t0[0] + h01 * p1[0] + h11 * corda * t1[0],
+                h00 * p0[1] + h10 * corda * t0[1] + h01 * p1[1] + h11 * corda * t1[1],
+                p0[2] + t * (p1[2] - p0[2]),
+            ]
+        })
+        .collect();
+    let desvio = c[i0 + 1..i1]
+        .iter()
+        .map(|p| novo.windows(2).map(|w| dist_trecho(*p, w[0], w[1])).fold(f64::INFINITY, f64::min))
+        .fold(0.0, f64::max);
+    let curva: Vec<P3> = c[..i0].iter().copied().chain(novo).chain(c[i1 + 1..].iter().copied()).collect();
+    Some((curva, i0..i0 + n, desvio))
+}
+
+fn dist_trecho(p: P3, a: P3, b: P3) -> f64 {
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let l2 = dx * dx + dy * dy;
+    let t = if l2 > 0.0 { (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+    ((p[0] - a[0] - t * dx).powi(2) + (p[1] - a[1] - t * dy).powi(2)).sqrt()
+}
+
+/// Grade com os trechos de todas as curvas, para conferir se um trecho refeito cruza alguma delas.
+struct GradeTrechos {
+    x0: f64,
+    y0: f64,
+    lx: f64,
+    ly: f64,
+    n: usize,
+    celulas: Vec<Vec<(u32, u32)>>,
+}
+
+impl GradeTrechos {
+    fn nova(curvas: &[Vec<P3>]) -> Self {
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        let mut total = 0usize;
+        for c in curvas {
+            total += c.len();
+            for p in c {
+                x0 = x0.min(p[0]);
+                y0 = y0.min(p[1]);
+                x1 = x1.max(p[0]);
+                y1 = y1.max(p[1]);
+            }
+        }
+        let n = ((total as f64).sqrt() as usize).clamp(1, 2048);
+        let mut g = GradeTrechos {
+            x0,
+            y0,
+            lx: ((x1 - x0) / n as f64).max(1e-9),
+            ly: ((y1 - y0) / n as f64).max(1e-9),
+            n,
+            celulas: vec![Vec::new(); n * n],
+        };
+        for (k, c) in curvas.iter().enumerate() {
+            for (i, w) in c.windows(2).enumerate() {
+                let ((i0, j0), (i1, j1)) = g.caixa(w[0], w[1]);
+                for jj in j0..=j1 {
+                    for ii in i0..=i1 {
+                        g.celulas[jj * n + ii].push((k as u32, i as u32));
+                    }
+                }
+            }
+        }
+        g
+    }
+
+    fn cel(&self, x: f64, y: f64) -> (usize, usize) {
+        (
+            (((x - self.x0) / self.lx).floor().max(0.0) as usize).min(self.n - 1),
+            (((y - self.y0) / self.ly).floor().max(0.0) as usize).min(self.n - 1),
+        )
+    }
+
+    fn caixa(&self, a: P3, b: P3) -> ((usize, usize), (usize, usize)) {
+        (self.cel(a[0].min(b[0]), a[1].min(b[1])), self.cel(a[0].max(b[0]), a[1].max(b[1])))
+    }
+
+    /// O trecho `faixa` da curva nova (que substitui a curva `k`) cruza alguma curva?
+    /// O índice só diz quais curvas estão perto; o teste usa o desenho atual delas (pode ter mudado nesta rodada).
+    fn cruza(&self, nova: &[P3], faixa: std::ops::Range<usize>, k: usize, curvas: &[Vec<P3>]) -> bool {
+        let ini = faixa.start.saturating_sub(1);
+        let fim = (faixa.end + 1).min(nova.len());
+        let trecho = &nova[ini..fim];
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for p in trecho {
+            x0 = x0.min(p[0]);
+            y0 = y0.min(p[1]);
+            x1 = x1.max(p[0]);
+            y1 = y1.max(p[1]);
+        }
+        let ((i0, j0), (i1, j1)) = self.caixa([x0, y0, 0.0], [x1, y1, 0.0]);
+        let mut perto: Vec<u32> = Vec::new();
+        for jj in j0..=j1 {
+            for ii in i0..=i1 {
+                perto.extend(self.celulas[jj * self.n + ii].iter().map(|&(c, _)| c));
+            }
+        }
+        perto.sort_unstable();
+        perto.dedup();
+        let na_caixa = |u: &[P3]| u[0][0].max(u[1][0]) >= x0 && u[0][0].min(u[1][0]) <= x1 && u[0][1].max(u[1][1]) >= y0 && u[0][1].min(u[1][1]) <= y1;
+        let mut outros: Vec<[P3; 2]> = Vec::new();
+        for c in perto {
+            if c as usize == k {
+                continue;
+            }
+            if let Some(u) = curvas.get(c as usize) {
+                outros.extend(u.windows(2).filter(|w| na_caixa(w)).map(|w| [w[0], w[1]]));
+            }
+        }
+        // A própria curva nova fora do trecho (laço consigo mesma).
+        outros.extend(nova[..ini + 1].windows(2).chain(nova[fim - 1..].windows(2)).filter(|w| na_caixa(w)).map(|w| [w[0], w[1]]));
+        trecho
+            .windows(2)
+            .any(|w| outros.iter().any(|u| crate::tin::segmentos_se_cruzam(w[0], w[1], u[0], u[1])))
+    }
+}
+
+/// Separa a primeira lente válida do par (A, B).
+fn separar_lente(
+    curvas: &[Vec<P3>],
+    ia: usize,
+    ib: usize,
+    cs: &[&Cruzamento],
+    folga: f64,
+    grade: &GradeTrechos,
+) -> Option<Separacao> {
+    let (a, b) = (&curvas[ia][..], &curvas[ib][..]);
     let mut pts: Vec<(f64, f64, P3)> = cs
         .iter()
         .map(|c| (posicao(a, c.trecho_a, c.ponto), posicao(b, c.trecho_b, c.ponto), c.ponto))
         .collect();
     pts.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+    // 0. Barriga: do cruzamento i ao j (j - i ímpar: a curva sai e volta para o seu lado), refazer a curva que mais
+    // se afasta do próprio caminho; empate fica com a de cima. Tenta primeiro a barriga curta, depois as maiores,
+    // porque a curva costuma entrar e sair da vizinha várias vezes seguidas.
+    let cota = |em_a: bool| if em_a { a[0][2] } else { b[0][2] };
+    for i in 0..pts.len() - 1 {
+        // Barriga curta: um cruzamento de entrada e um de saída. Barriga longa refeita costuma invadir uma terceira
+        // curva (medido no CURVAS_V1, 17/11), então o resto vai para a linha do meio.
+        for j in (i + 1..pts.len().min(i + 2)).step_by(2) {
+            let (pa1, pa2) = (pts[i].0, pts[j].0);
+            let lo = pts[i..=j].iter().map(|q| q.1).fold(f64::INFINITY, f64::min);
+            let hi = pts[i..=j].iter().map(|q| q.1).fold(f64::NEG_INFINITY, f64::max);
+            let fora = pts.iter().enumerate().any(|(k, q)| (k < i || k > j) && q.1 > lo && q.1 < hi);
+            if fora || pa2 - pa1 < 1e-12 {
+                continue;
+            }
+            let mut opcoes: Vec<(bool, (Vec<P3>, std::ops::Range<usize>, f64))> = Vec::new();
+            if let Some(x) = refazer_trecho(a, pa1, pa2) {
+                opcoes.push((true, x));
+            }
+            if let Some(x) = refazer_trecho(b, lo, hi) {
+                opcoes.push((false, x));
+            }
+            opcoes.sort_by(|x, y| {
+                if (y.1 .2 - x.1 .2).abs() > 1e-6 {
+                    y.1 .2.partial_cmp(&x.1 .2).unwrap()
+                } else {
+                    cota(y.0).partial_cmp(&cota(x.0)).unwrap()
+                }
+            });
+            if let Some((em_a, (curva, faixa, _))) = opcoes.into_iter().next() {
+                // O trecho refeito não pode cruzar nenhuma curva (nem a vizinha, nem uma terceira).
+                let k = if em_a { ia } else { ib };
+                if !grade.cruza(&curva, faixa, k, curvas) {
+                    return Some(Separacao::Barriga { em_a, curva });
+                }
+            }
+        }
+    }
     for i in 0..pts.len() - 1 {
         let (pa1, pb1, c1) = pts[i];
         let (pa2, pb2, c2) = pts[i + 1];
@@ -190,7 +409,7 @@ fn separar_lente(a: &[P3], b: &[P3], cs: &[&Cruzamento], folga: f64) -> Option<(
             lente_b.reverse();
         }
         let nova_b: Vec<P3> = b[..=ib_lo].iter().copied().chain(lente_b).chain(b[ib_hi + 1..].iter().copied()).collect();
-        return Some((nova_a, nova_b));
+        return Some(Separacao::Lente(nova_a, nova_b));
     }
     None
 }

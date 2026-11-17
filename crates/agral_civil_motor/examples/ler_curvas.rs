@@ -150,8 +150,8 @@ fn main() {
         let t = Instant::now();
         let r = agral_civil_motor::correcao::corrigir_cruzamentos(&linhas, &Default::default());
         println!(
-            "correção: {} lentes separadas, {} trechos cortados, {} rodadas, {} curvas alteradas, sobraram {} cruzamentos, em {:?}",
-            r.lentes_separadas, r.trechos_cortados, r.rodadas, r.alteradas.len(), r.restantes, t.elapsed()
+            "correção: {} barrigas cortadas, {} lentes separadas, {} trechos cortados, {} rodadas, {} curvas alteradas, sobraram {} cruzamentos, em {:?}",
+            r.barrigas_cortadas, r.lentes_separadas, r.trechos_cortados, r.rodadas, r.alteradas.len(), r.restantes, t.elapsed()
         );
         let antes: f64 = linhas.iter().map(|l| l.windows(2).map(|w| ((w[0][0]-w[1][0]).powi(2)+(w[0][1]-w[1][1]).powi(2)).sqrt()).sum::<f64>()).sum();
         let depois: f64 = r.curvas.iter().map(|l| l.windows(2).map(|w| ((w[0][0]-w[1][0]).powi(2)+(w[0][1]-w[1][1]).powi(2)).sqrt()).sum::<f64>()).sum();

@@ -15,24 +15,42 @@ fn curvas_sem_cruzamento_ficam_iguais() {
 }
 
 #[test]
-fn lente_entre_dois_cruzamentos_e_separada_sem_mexer_fora_dela() {
-    // A reta em y = 0; B passa por cima dela, mas entre x = 4 e x = 6 desce para y = -1 (invade o lado de A).
+fn barriga_da_curva_de_cima_e_cortada_e_a_curva_refeita_sem_canto() {
+    // Regra do JP (17/11): a curva de cima (B, 10,5) faz uma barriga para dentro da de baixo (A, 10,0).
+    // A barriga é cortada e B volta a seguir o caminho que tinha antes e depois dela; A não muda.
     let a: Vec<P3> = (0..=10).map(|i| [i as f64, 0.0, 10.0]).collect();
-    let b = vec![[0.0, 1.0, 10.5], [3.0, 1.0, 10.5], [4.5, -1.0, 10.5], [5.5, -1.0, 10.5], [7.0, 1.0, 10.5], [10.0, 1.0, 10.5]];
+    let b = vec![[0.0, 1.0, 10.5], [2.0, 1.0, 10.5], [3.0, 1.0, 10.5], [4.5, -1.0, 10.5], [5.5, -1.0, 10.5], [7.0, 1.0, 10.5], [8.0, 1.0, 10.5], [10.0, 1.0, 10.5]];
     let r = corrigir_cruzamentos(&[a.clone(), b.clone()], &op());
     assert!(diagnosticar_curvas(&r.curvas).cruzamentos.is_empty());
-    assert_eq!(r.lentes_separadas, 1);
-    assert_eq!(r.trechos_cortados, 0);
-    // Fora da lente nada muda, e cada curva fica na sua cota.
-    assert_eq!(&r.curvas[0][..4], &a[..4]);
-    assert_eq!(&r.curvas[0][r.curvas[0].len() - 3..], &a[8..]);
-    assert_eq!(r.curvas[1][0], b[0]);
-    assert!(r.curvas[0].iter().all(|p| p[2] == 10.0) && r.curvas[1].iter().all(|p| p[2] == 10.5));
-    // Na lente, A continua abaixo de B (o lado que tinha fora dela).
-    for p in &r.curvas[0] {
-        let zb = r.curvas[1].iter().filter(|q| (q[0] - p[0]).abs() < 0.3).map(|q| q[1]).fold(f64::INFINITY, f64::min);
-        assert!(p[1] < zb + 1e-9, "A em {p:?} passou para cima de B");
+    assert_eq!(r.barrigas_cortadas, 1);
+    assert_eq!((r.lentes_separadas, r.trechos_cortados), (0, 0));
+    assert_eq!(r.curvas[0], a, "a curva de baixo não muda");
+    assert_eq!(r.curvas[1][..3], b[..3]);
+    assert_eq!(r.curvas[1][r.curvas[1].len() - 3..], b[5..]);
+    for p in &r.curvas[1] {
+        assert_eq!(p[2], 10.5);
+        assert!((p[1] - 1.0).abs() < 0.05, "B refeita fora do alinhamento em {p:?}");
     }
+}
+
+#[test]
+fn barriga_da_curva_de_baixo_tambem_e_achada() {
+    // Mesma situação invertida: a de baixo é que entra na de cima.
+    let a: Vec<P3> = (0..=10).map(|i| [i as f64, 1.0, 10.5]).collect();
+    let b = vec![[0.0, 0.0, 10.0], [2.0, 0.0, 10.0], [3.0, 0.0, 10.0], [4.5, 2.0, 10.0], [5.5, 2.0, 10.0], [7.0, 0.0, 10.0], [8.0, 0.0, 10.0], [10.0, 0.0, 10.0]];
+    let r = corrigir_cruzamentos(&[a.clone(), b], &op());
+    assert!(diagnosticar_curvas(&r.curvas).cruzamentos.is_empty());
+    assert_eq!(r.curvas[0], a);
+    assert!(r.curvas[1].iter().all(|p| p[1].abs() < 0.05));
+}
+
+#[test]
+fn barriga_que_nao_cabe_cai_na_linha_do_meio() {
+    // As duas curvas se cruzam em X longo, sem barriga clara: refazer uma delas ainda cruzaria a outra.
+    let a: Vec<P3> = vec![[0.0, 0.0, 10.0], [4.0, 0.0, 10.0], [5.0, 2.0, 10.0], [6.0, 0.0, 10.0], [10.0, 0.0, 10.0]];
+    let b: Vec<P3> = vec![[0.0, 0.5, 10.5], [4.0, 0.5, 10.5], [5.0, -1.5, 10.5], [6.0, 0.5, 10.5], [10.0, 0.5, 10.5]];
+    let r = corrigir_cruzamentos(&[a, b], &op());
+    assert!(diagnosticar_curvas(&r.curvas).cruzamentos.is_empty());
 }
 
 #[test]
@@ -67,6 +85,6 @@ fn varias_curvas_onduladas_cruzando_terminam_sem_cruzamento() {
     assert!(!diagnosticar_curvas(&curvas).cruzamentos.is_empty());
     let r = corrigir_cruzamentos(&curvas, &op());
     assert!(diagnosticar_curvas(&r.curvas).cruzamentos.is_empty(), "sobraram {}", r.restantes);
-    eprintln!("lentes {} cortes {} rodadas {}", r.lentes_separadas, r.trechos_cortados, r.rodadas);
+    eprintln!("barrigas {} lentes {} cortes {} rodadas {}", r.barrigas_cortadas, r.lentes_separadas, r.trechos_cortados, r.rodadas);
     assert_eq!(r.restantes, 0);
 }
