@@ -5,6 +5,7 @@
 
 pub mod correcao;
 pub mod diagnostico;
+pub mod emenda;
 pub mod landxml;
 pub mod pontos;
 pub mod superficie;

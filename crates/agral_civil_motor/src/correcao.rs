@@ -213,7 +213,7 @@ fn dist_trecho(p: P3, a: P3, b: P3) -> f64 {
 }
 
 /// Grade com os trechos de todas as curvas, para conferir se um trecho refeito cruza alguma delas.
-struct GradeTrechos {
+pub(crate) struct GradeTrechos {
     x0: f64,
     y0: f64,
     lx: f64,
@@ -223,7 +223,7 @@ struct GradeTrechos {
 }
 
 impl GradeTrechos {
-    fn nova(curvas: &[Vec<P3>]) -> Self {
+    pub(crate) fn nova(curvas: &[Vec<P3>]) -> Self {
         let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
         let mut total = 0usize;
         for c in curvas {
@@ -270,7 +270,7 @@ impl GradeTrechos {
 
     /// O trecho `faixa` da curva nova (que substitui a curva `k`) cruza alguma curva?
     /// O índice só diz quais curvas estão perto; o teste usa o desenho atual delas (pode ter mudado nesta rodada).
-    fn cruza(&self, nova: &[P3], faixa: std::ops::Range<usize>, k: usize, curvas: &[Vec<P3>]) -> bool {
+    pub(crate) fn cruza(&self, nova: &[P3], faixa: std::ops::Range<usize>, k: usize, curvas: &[Vec<P3>]) -> bool {
         let ini = faixa.start.saturating_sub(1);
         let fim = (faixa.end + 1).min(nova.len());
         let trecho = &nova[ini..fim];

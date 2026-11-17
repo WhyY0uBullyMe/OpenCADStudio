@@ -158,6 +158,39 @@ fn main() {
         println!("comprimento total das curvas: antes {antes:.1} m, depois {depois:.1} m");
         linhas = r.curvas;
     }
+    // EMENDAR=<folga em m>: emenda os pedaços (R19), usando o LIMITE como borda da área se houver.
+    if let Ok(f) = std::env::var("EMENDAR") {
+        // LIMITE_ARQ=<arquivo com "E N" por linha> tem preferência sobre LIMITE=<camada>.
+        let do_arquivo = std::env::var("LIMITE_ARQ").ok().map(|a| {
+            std::fs::read_to_string(a)
+                .unwrap()
+                .lines()
+                .filter_map(|l| {
+                    let v: Vec<f64> = l.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                    (v.len() >= 2).then(|| [v[0], v[1], 0.0])
+                })
+                .collect::<Vec<_>>()
+        });
+        let limite = do_arquivo.or_else(|| std::env::var("LIMITE").ok().and_then(|l| limites_da_camada(&doc, &l).into_iter().next())).map(|mut l| {
+            if l.first() != l.last() {
+                l.push(l[0]);
+            }
+            l
+        });
+        let t = Instant::now();
+        let antes = linhas.len();
+        let e = agral_civil_motor::emenda::emendar_pedacos(
+            &linhas,
+            &agral_civil_motor::emenda::OpcoesEmenda { folga_maxima: f.parse().unwrap_or(5.0), limite },
+        );
+        let abertas = e.curvas.iter().filter(|c| ((c[0][0] - c[c.len() - 1][0]).powi(2) + (c[0][1] - c[c.len() - 1][1]).powi(2)).sqrt() > 1e-3).count();
+        let cruz = agral_civil_motor::diagnostico::diagnosticar_curvas(&e.curvas).cruzamentos.len();
+        println!(
+            "emenda: {} emendas ({} fecharam o próprio pedaço), {} curvas viraram {}, ainda abertas {}, cruzamentos depois {}, em {:?}",
+            e.emendas, e.fechadas, antes, e.curvas.len(), abertas, cruz, t.elapsed()
+        );
+        linhas = e.curvas;
+    }
     let mut s = Superficie::nova("TN", caminho);
     s.acrescentar(ItemDefinicao::curvas(caminho, linhas.clone()));
     if let Ok(lim) = std::env::var("LIMITE") {
