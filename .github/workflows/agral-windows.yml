@@ -1,0 +1,65 @@
+# Agral CAD: programa para Windows com o pacote Agral Civil embutido (pasta plugins/agral.civil ao lado do .exe).
+# Gera um ZIP portátil para o JP testar. Roda à mão (Actions > Agral CAD Windows > Run workflow) ou a cada push na
+# branch agral-cad.
+name: Agral CAD Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [agral-cad]
+
+permissions:
+  contents: read
+
+env:
+  RUST_MIN_STACK: "67108864"
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - name: Icons
+        shell: pwsh
+        run: |
+          magick assets/logo.svg -define icon:auto-resize=16,24,32,48,64,128,256 packaging/windows/AppIcon.ico
+          magick -background none -density 1536 assets/mimetypes/image-vnd.dwg.svg -define icon:auto-resize=16,24,32,48,64,128,256 packaging/windows/dwg.ico
+          magick -background none -density 1536 assets/mimetypes/image-vnd.dxf.svg -define icon:auto-resize=16,24,32,48,64,128,256 packaging/windows/dxf.ico
+
+      - name: Test Agral Civil
+        shell: bash
+        run: cargo test --locked --release -p agral_civil_motor -p agral_civil_pacote
+
+      - name: Build
+        shell: bash
+        run: |
+          cargo build --locked --release
+          cargo build --locked --release -p agral_civil_pacote
+
+      - name: Package
+        shell: bash
+        run: |
+          d=AgralCAD
+          mkdir -p "$d/plugins/agral.civil"
+          cp target/release/OpenCADStudio.exe "$d/"
+          cp crates/agral_civil_pacote/plugin.toml "$d/plugins/agral.civil/"
+          cp target/release/agral_civil_pacote.dll "$d/plugins/agral.civil/"
+          cp LICENSE "$d/"
+          printf 'Agral CAD (teste) - Open CAD Studio com o pacote Agral Civil embutido.\nAbra OpenCADStudio.exe. Comandos: CREATESURFACE, ADDSURFACECONTOURS, REBUILDSURFACE.\nCodigo: https://github.com/WhyY0uBullyMe/OpenCADStudio/tree/agral-cad (GPL 3).\n' > "$d/LEIA-ME.txt"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: AgralCAD-windows-x64
+          path: AgralCAD
+          retention-days: 30
