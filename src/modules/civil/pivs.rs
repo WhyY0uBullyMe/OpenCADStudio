@@ -52,7 +52,7 @@ impl CadCommand for PivsCommand {
     }
 
     fn input_kind(&self) -> crate::command::InputKind {
-        crate::command::InputKind::FreeText
+        crate::command::InputKind::SingleToken
     }
 
     fn on_text_input(&mut self, text: &str) -> Option<CmdResult> {

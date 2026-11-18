@@ -19,7 +19,9 @@ use crate::snap::SnapType;
 use std::sync::Arc;
 
 /// Original crosshair geometry retained at the default setting values.
-pub const CROSSHAIR_SQ: f32 = 7.5;
+/// Agral CAD: 10 x 10 px no PICKBOX padrão, mais perto do AutoCAD (pedido do JP, 18/11; era 15 x 15). A tolerância
+/// do clique (`DEFAULT_PICK_APERTURE`) não muda.
+pub const CROSSHAIR_SQ: f32 = 5.0;
 pub const CROSSHAIR_ARM: f32 = 60.0;
 pub(crate) const TRACKING_DASH_PX: [f32; 2] = [6.0, 4.0];
 const DEFAULT_CURSOR_SIZE: i32 = 5;
@@ -254,8 +256,7 @@ pub(crate) fn crosshair_arm_px(bounds: iced::Rectangle, value: i32) -> f32 {
     CROSSHAIR_ARM + (full - CROSSHAIR_ARM) * scale
 }
 
-/// Convert PICKBOX to the visible half-size while retaining the original
-/// 15 x 15 px center box at the default value.
+/// Convert PICKBOX to the visible half-size: a 10 x 10 px center box at the default value.
 pub(crate) fn pick_box_half_px(value: i32) -> f32 {
     let value = value.clamp(0, 50);
     if value <= DEFAULT_PICK_BOX {
@@ -1771,7 +1772,8 @@ fn draw_grip_marker(
             pair.color
         };
         frame.fill(&path, hover_color);
-        frame.stroke(
+        // Com GRIPHOVER escolhido (padrão do Agral CAD) só a cor muda, como no AutoCAD.
+        if visual.grip_hover == 0 { frame.stroke(
             &path,
             canvas::Stroke {
                 width: 1.5,
@@ -1779,13 +1781,15 @@ fn draw_grip_marker(
                 ..Default::default()
             },
         );
+        }
     } else {
         let color = if grip.is_authoring {
             authoring.grip
         } else {
             idle_grip_color(grip, palette, visual)
         };
-        let fill = if paints_filled(grip) {
+        // Com cor ACI escolhida (GRIPCOLOR, o padrão do Agral CAD), o grip é cheio como no AutoCAD.
+        let fill = if paints_filled(grip) || (visual.grip_color > 0 && !is_arrow) {
             color
         } else {
             palette.background.base.color.scale_alpha(0.7)

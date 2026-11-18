@@ -185,6 +185,24 @@ impl OpenCADStudio {
         }
         let e = self.tabs[i].scene.document.get_entity(fonte).ok_or("The polyline no longer exists.")?;
         let (v, fechada) = vertices_com_bulge(e).ok_or("Select a polyline, 3D polyline or line.")?;
+        self.civil_criar_alinhamento_de_vertices(i, nome, v, fechada)
+    }
+
+    /// Eixo a partir dos vértices (com bulge), sem objeto de origem: o traçado por PIs (`CREATEALIGNMENTLAYOUT`).
+    pub(crate) fn civil_criar_alinhamento_de_vertices(
+        &mut self,
+        i: usize,
+        nome: &str,
+        v: Vec<([f64; 2], f64)>,
+        fechada: bool,
+    ) -> Result<String, String> {
+        let nome = nome.trim();
+        if !crate::app::civil::nome_valido(nome) {
+            return Err(format!("Invalid alignment name '{nome}'."));
+        }
+        if self.civil_al_ler(i, nome).is_ok() {
+            return Err(format!("Alignment '{nome}' already exists."));
+        }
         let mut a = AlinhamentoDwg::novo(nome, v, fechada);
         a.geometria().ok_or("The polyline is too short for an alignment.")?;
         // Superfície padrão: a única do desenho, se houver uma só.

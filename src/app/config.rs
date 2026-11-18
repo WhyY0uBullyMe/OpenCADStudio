@@ -436,6 +436,10 @@ pub struct ModelSpaceThemeConfig {
     /// trem de ficar laranjado quando eu coloco a mão em cima"). Arquivo antigo sem o campo lê `false`.
     #[serde(default)]
     pub agral_previa_ajustada: bool,
+    /// Agral CAD: grips já passaram uma vez para as cores do AutoCAD (GRIPCOLOR 150, GRIPHOVER 11, GRIPHOT 12; pedido do
+    /// JP, 18/11). Depois o JP muda à vontade em Options.
+    #[serde(default)]
+    pub agral_grips_ajustados: bool,
     /// Maximum number of entities highlighted while a selection box is open.
     pub selection_preview_limit: u32,
     /// GRIPSIZE: grip marker half-size in pixels (1–25, default 5).
@@ -482,6 +486,7 @@ impl Default for ModelSpaceThemeConfig {
             // Agral CAD: ao carregar a configuração (`AppConfig::load`) o destaque parado é desligado uma vez.
             selection_preview: 3,
             agral_previa_ajustada: false,
+            agral_grips_ajustados: false,
             selection_preview_limit: 20_000,
             grip_size: 5,
             grip_color: 0,
@@ -661,6 +666,12 @@ impl AppConfig {
         if !self.model_space.agral_previa_ajustada {
             self.model_space.selection_preview &= !1;
             self.model_space.agral_previa_ajustada = true;
+        }
+        if !self.model_space.agral_grips_ajustados {
+            self.model_space.grip_color = 150;
+            self.model_space.grip_hover = 11;
+            self.model_space.grip_hot = 12;
+            self.model_space.agral_grips_ajustados = true;
         }
     }
 
@@ -1009,6 +1020,17 @@ mod tests {
         c.model_space.selection_preview = 3;
         c.aplicar_padroes_agral();
         assert_eq!(c.model_space.selection_preview, 3, "quem religar fica com o que escolheu");
+    }
+
+    #[test]
+    fn grips_com_as_cores_do_autocad_uma_vez() {
+        let mut c = AppConfig::default();
+        c.aplicar_padroes_agral();
+        let m = &c.model_space;
+        assert_eq!((m.grip_color, m.grip_hover, m.grip_hot), (150, 11, 12));
+        c.model_space.grip_color = 3;
+        c.aplicar_padroes_agral();
+        assert_eq!(c.model_space.grip_color, 3, "quem trocar fica com o que escolheu");
     }
 
     #[test]

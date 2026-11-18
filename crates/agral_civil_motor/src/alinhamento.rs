@@ -394,3 +394,73 @@ mod testes {
         assert!(quase(c.cota(123.0), 955.0, 1e-12));
     }
 }
+
+/// Tangentes pelos PIs com curva circular de raio `raio` em cada PI interno (como o traçado do Civil 3D), no
+/// formato de vértice de polilinha (ponto, bulge do trecho que sai dele). Curva que não cabe entre os PIs fica
+/// de fora (o PI vira vértice simples), e `raio <= 0` dá só tangentes.
+pub fn tangentes_com_curvas(pis: &[[f64; 2]], raio: f64) -> Vec<([f64; 2], f64)> {
+    let mut out: Vec<([f64; 2], f64)> = Vec::new();
+    let Some(&primeiro) = pis.first() else { return out };
+    out.push((primeiro, 0.0));
+    // Quanto de cada tangente já foi usado pela curva anterior.
+    let mut usado = 0.0;
+    for k in 1..pis.len().saturating_sub(1) {
+        let (a, b, c) = (pis[k - 1], pis[k], pis[k + 1]);
+        let (l1, l2) = (((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt(), ((c[0] - b[0]).powi(2) + (c[1] - b[1]).powi(2)).sqrt());
+        if l1 < 1e-9 || l2 < 1e-9 || raio <= 0.0 {
+            out.push((b, 0.0));
+            usado = 0.0;
+            continue;
+        }
+        let u1 = [(b[0] - a[0]) / l1, (b[1] - a[1]) / l1];
+        let u2 = [(c[0] - b[0]) / l2, (c[1] - b[1]) / l2];
+        let cruz = u1[0] * u2[1] - u1[1] * u2[0];
+        let delta = cruz.atan2(u1[0] * u2[0] + u1[1] * u2[1]);
+        let t = raio * (delta.abs() / 2.0).tan();
+        // A curva seguinte também usa a tangente que sai: cada curva pode ficar com metade dela.
+        let cabe2 = if k + 2 < pis.len() { l2 / 2.0 } else { l2 };
+        if delta.abs() < 1e-6 || t > l1 - usado + 1e-9 || t > cabe2 + 1e-9 {
+            out.push((b, 0.0));
+            usado = 0.0;
+            continue;
+        }
+        let pc = [b[0] - u1[0] * t, b[1] - u1[1] * t];
+        let pt = [b[0] + u2[0] * t, b[1] + u2[1] * t];
+        out.push((pc, (delta / 4.0).tan()));
+        out.push((pt, 0.0));
+        usado = t;
+    }
+    if pis.len() > 1 {
+        out.push((*pis.last().unwrap(), 0.0));
+    }
+    out.dedup_by(|x, y| (x.0[0] - y.0[0]).abs() < 1e-9 && (x.0[1] - y.0[1]).abs() < 1e-9);
+    out
+}
+
+#[cfg(test)]
+mod testes_tracado {
+    use super::*;
+
+    /// Ângulo reto com raio 10: PC 10 m antes do PI, PT 10 m depois, quarto de círculo (bulge tan(22,5°)).
+    #[test]
+    fn curva_no_pi_em_angulo_reto() {
+        let v = tangentes_com_curvas(&[[0.0, 0.0], [100.0, 0.0], [100.0, 100.0]], 10.0);
+        assert_eq!(v.len(), 4);
+        assert_eq!(v[1].0, [90.0, 0.0]);
+        assert!((v[1].1 - (std::f64::consts::FRAC_PI_8).tan()).abs() < 1e-12, "virou à esquerda: bulge positivo");
+        assert!((v[2].0[0] - 100.0).abs() < 1e-9 && (v[2].0[1] - 10.0).abs() < 1e-9);
+        let al = Alinhamento::de_polilinha(&v, false).unwrap();
+        let esperado = 90.0 + 10.0 * std::f64::consts::FRAC_PI_2 + 90.0;
+        assert!((al.comprimento() - esperado).abs() < 1e-6, "{}", al.comprimento());
+    }
+
+    #[test]
+    fn sem_raio_ou_sem_espaco_fica_so_tangente() {
+        let pis = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]];
+        assert_eq!(tangentes_com_curvas(&pis, 0.0).len(), 3);
+        assert_eq!(tangentes_com_curvas(&pis, 50.0).len(), 3, "raio 50 não cabe em tangentes de 10 m");
+        // Virando à direita, bulge negativo.
+        let v = tangentes_com_curvas(&[[0.0, 0.0], [100.0, 0.0], [100.0, -100.0]], 10.0);
+        assert!(v[1].1 < 0.0);
+    }
+}

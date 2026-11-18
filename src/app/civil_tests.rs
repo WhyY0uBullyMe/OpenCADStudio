@@ -512,3 +512,45 @@ fn extrair_objetos_pergunta_o_tipo() {
     assert!(app.tabs[i].active_cmd.is_none());
     assert_eq!((conta(&app, CAMADA_MESTRA.0), conta(&app, CAMADA_INTERMEDIARIA.0)), (4 * m0, 4 * n0));
 }
+
+/// Jeitos de criar o eixo (JP, 18/11): do objeto (selecionado antes ou escolhido depois) e traçando os PIs.
+#[test]
+fn alinhamento_do_objeto_e_pelo_tracado() {
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    let linha = |y: f64| {
+        let mut p = LwPolyline::new();
+        p.vertices = vec![LwVertex::new(Vector2::new(0.0, y)), LwVertex::new(Vector2::new(100.0, y))];
+        EntityType::LwPolyline(p)
+    };
+    let hs = app.tabs[i].scene.add_entities(vec![linha(0.0), linha(50.0)]);
+    // Duas polilinhas selecionadas: dois eixos na hora, nomes em sequência.
+    for h in &hs {
+        app.tabs[i].scene.select_entity(*h, false);
+    }
+    command(&mut app, "CREATEALIGNMENTENTITIES");
+    assert!(app.civil_al_ler(i, "EIXO1").is_ok() && app.civil_al_ler(i, "EIXO2").is_ok());
+    assert!(app.tabs[i].scene.selected_handles_in_order().is_empty());
+
+    // Sem seleção: pede o objeto.
+    command(&mut app, "CREATEALIGNMENTENTITIES");
+    assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("EIXO3"));
+    app.tabs[i].active_cmd = None;
+
+    // Traçado: raio 10 e três PIs digitados (um relativo); Enter termina.
+    command(&mut app, "CREATEALIGNMENTLAYOUT");
+    for t in ["10", "0,200", "100,200", "@0,100", ""] {
+        digitar(&mut app, t);
+    }
+    let a = app.civil_al_ler(i, "EIXO3").expect("eixo traçado");
+    let esperado = 90.0 + 10.0 * std::f64::consts::FRAC_PI_2 + 90.0;
+    let l = a.geometria().unwrap().comprimento();
+    assert!((l - esperado).abs() < 1e-6, "{l}");
+
+    // CREATEALIGNMENT sem nada pergunta o jeito; "L" vai para o traçado.
+    command(&mut app, "CREATEALIGNMENT");
+    assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("[Entities/Layout]"));
+    digitar(&mut app, "L");
+    assert_eq!(app.tabs[i].active_cmd.as_ref().map(|c| c.name()), Some("CREATEALIGNMENTLAYOUT"));
+}

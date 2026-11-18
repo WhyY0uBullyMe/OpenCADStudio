@@ -64,6 +64,74 @@ impl OpenCADStudio {
 
     pub(super) fn dispatch_alinhamento(&mut self, verbo: &str, args: &[&str], i: usize) -> Option<Task<Message>> {
         match verbo {
+            // Do objeto (Civil 3D: Create Alignment from Objects): polilinhas já selecionadas viram eixos na hora;
+            // sem seleção, pede para escolher e a escolhida já vira (pedido do JP, 18/11).
+            "CREATEALIGNMENTENTITIES" | "CREATEALIGNFROMOBJECTS" => {
+                let sel: Vec<_> = self.tabs[i]
+                    .scene
+                    .selected_handles_in_order()
+                    .into_iter()
+                    .filter(|h| {
+                        self.tabs[i].scene.document.get_entity(*h).and_then(crate::app::civil_alinhamento::vertices_com_bulge).is_some()
+                    })
+                    .collect();
+                if sel.is_empty() {
+                    let nome = args.first().map(|s| s.to_string()).unwrap_or_else(|| self.civil_proximo_eixo(i));
+                    let c = crate::modules::civil::eixo_fonte::EixoFonteCommand::new(&nome);
+                    self.civil_instalar(i, Box::new(c));
+                } else {
+                    let mut msgs = Vec::new();
+                    for (k, h) in sel.into_iter().enumerate() {
+                        let nome = match (k, args.first()) {
+                            (0, Some(n)) => n.to_string(),
+                            _ => self.civil_proximo_eixo(i),
+                        };
+                        match self.civil_criar_alinhamento(i, &nome, h) {
+                            Ok(m) => msgs.push(m),
+                            Err(e) => msgs.push(format!("ERROR: {e}")),
+                        }
+                    }
+                    self.tabs[i].scene.deselect_all();
+                    let erro = msgs.iter().all(|m| m.starts_with("ERROR"));
+                    let texto = msgs.join(" ");
+                    self.civil_al_resultado(if erro { Err(texto) } else { Ok(texto) });
+                }
+            }
+            // Traçado por PIs (Civil 3D: Alignment Creation Tools).
+            "CREATEALIGNMENTLAYOUT" => {
+                let nome = args.first().map(|s| s.to_string()).unwrap_or_else(|| self.civil_proximo_eixo(i));
+                let c = crate::modules::civil::tracado::TracadoCommand::new(&nome);
+                self.civil_instalar(i, Box::new(c));
+            }
+            "_ALIGNFROMPOINTS" => {
+                let r = (|| {
+                    let [nome, raio, pts] = args else { return Err("Usage: _ALIGNFROMPOINTS name radius x,y;x,y;...".to_string()) };
+                    let raio: f64 = raio.parse().map_err(|_| "Invalid radius.".to_string())?;
+                    let pis: Vec<[f64; 2]> = pts
+                        .split(';')
+                        .map(|p| {
+                            let v: Vec<f64> = p.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                            (v.len() >= 2).then(|| [v[0], v[1]]).ok_or_else(|| format!("Invalid point '{p}'."))
+                        })
+                        .collect::<Result<_, _>>()?;
+                    let v = agral_civil_motor::alinhamento::tangentes_com_curvas(&pis, raio);
+                    self.civil_criar_alinhamento_de_vertices(i, nome, v, false)
+                })();
+                self.civil_al_resultado(r);
+            }
+            // Sem nada: escolhe o jeito (do objeto ou traçando os PIs).
+            "CREATEALIGNMENT" if args.is_empty() && self.tabs[i].scene.selected_handles_in_order().len() != 1 => {
+                let c = crate::modules::civil::perguntas::PerguntasCommand::com(
+                    "CREATEALIGNMENT",
+                    "_ALIGNMETHOD",
+                    vec!["Create alignment [Entities/Layout] <Entities>:".into()],
+                );
+                self.civil_instalar(i, Box::new(c));
+            }
+            "_ALIGNMETHOD" => {
+                let layout = args.first().is_some_and(|a| a.to_ascii_uppercase().starts_with('L'));
+                return self.dispatch_alinhamento(if layout { "CREATEALIGNMENTLAYOUT" } else { "CREATEALIGNMENTENTITIES" }, &[], i);
+            }
             "CREATEALIGNMENT" => {
                 if args.is_empty() {
                     let sel = self.tabs[i].scene.selected_handles_in_order();

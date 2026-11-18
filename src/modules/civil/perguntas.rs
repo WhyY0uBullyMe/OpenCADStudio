@@ -88,12 +88,18 @@ impl CadCommand for PerguntasCommand {
         true
     }
 
-    /// Nome de camada e de estilo pode ter espaço ("CURVA MESTRA-AS", "Curvas 0.5m"): só o Enter responde.
+    /// Espaço vale Enter, como no AutoCAD (o JP usa muito, 18/11). Só nome de camada e de estilo, que pode ter
+    /// espaço ("CURVA MESTRA-AS", "Curvas 0.5m"), espera o Enter.
     fn input_kind(&self) -> crate::command::InputKind {
-        if self.no_ponto() {
-            crate::command::InputKind::default()
-        } else {
+        let texto_livre = !self.no_ponto()
+            && self.perguntas.get(self.respostas.len()).is_some_and(|p| {
+                let p = p.to_ascii_lowercase();
+                p.contains("layer") || p.contains("style")
+            });
+        if texto_livre {
             crate::command::InputKind::FreeText
+        } else {
+            crate::command::InputKind::SingleToken
         }
     }
 

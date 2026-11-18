@@ -74,9 +74,14 @@ impl CadModule for CivilModule {
                     title: "Alignment and Profile",
                     tools: vec![
                         RibbonItem::LargeTool(ferramenta(
-                            "CREATEALIGNMENT",
-                            "Create\nAlignment",
-                            include_bytes!("../../../assets/icons/civil_alignment.svg"),
+                            "CREATEALIGNMENTENTITIES",
+                            "Alignment\nfrom Objects",
+                            include_bytes!("../../../assets/icons/civil_alignobjects.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "CREATEALIGNMENTLAYOUT",
+                            "Alignment\nLayout",
+                            include_bytes!("../../../assets/icons/civil_alignlayout.svg"),
                         )),
                         RibbonItem::LargeTool(ferramenta(
                             "CREATEPROFILEVIEW",
@@ -129,6 +134,7 @@ pub mod pegar_ponto;
 pub mod pivs;
 pub mod perguntas;
 pub mod refazer_curva;
+pub mod tracado;
 
 pub struct TinSurfaceModule;
 
@@ -228,7 +234,8 @@ impl CadModule for HomeModule {
                     "contours" => include_bytes!("../../../assets/icons/civil_contours.svg"),
                     "pointfile" => include_bytes!("../../../assets/icons/civil_pointfile.svg"),
                     "landxml" => include_bytes!("../../../assets/icons/civil_landxml_in.svg"),
-                    "alignment" => include_bytes!("../../../assets/icons/civil_alignment.svg"),
+                    "alignobjects" => include_bytes!("../../../assets/icons/civil_alignobjects.svg"),
+                    "alignlayout" => include_bytes!("../../../assets/icons/civil_alignlayout.svg"),
                     "profile" => include_bytes!("../../../assets/icons/civil_profile.svg"),
                     "assembly" => include_bytes!("../../../assets/icons/civil_assembly.svg"),
                     "corridor" => include_bytes!("../../../assets/icons/civil_corridor.svg"),
@@ -257,7 +264,8 @@ impl CadModule for HomeModule {
                 RibbonGroup {
                     title: "Create Design",
                     tools: vec![
-                        RibbonItem::LargeTool(ferramenta("CREATEALIGNMENT", "Alignment", ic("alignment"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEALIGNMENTENTITIES", "Alignment\nfrom Objects", ic("alignobjects"))),
+                        RibbonItem::Tool(ferramenta("CREATEALIGNMENTLAYOUT", "Alignment Layout", ic("alignlayout"))),
                         RibbonItem::LargeTool(ferramenta("CREATEPROFILE", "Profile", ic("profile"))),
                         RibbonItem::LargeTool(ferramenta("CREATEASSEMBLY", "Assembly", ic("assembly"))),
                         RibbonItem::LargeTool(ferramenta("CREATECORRIDOR", "Corridor", ic("corridor"))),
