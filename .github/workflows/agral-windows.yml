@@ -3,10 +3,9 @@
 # branch agral-cad.
 name: Agral CAD Windows
 
+# Só à mão (decisão do JP em 18/11: "só quando eu te mandar"): Actions > Agral CAD Windows > Run workflow.
 on:
   workflow_dispatch:
-  push:
-    branches: [agral-cad]
 
 permissions:
   contents: read
