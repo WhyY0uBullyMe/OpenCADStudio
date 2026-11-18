@@ -34,6 +34,27 @@ impl OpenCADStudio {
         self.refresh_properties();
     }
 
+    fn civil_instalar(&mut self, i: usize, c: Box<dyn crate::command::CadCommand>) {
+        self.command_line.push_info(&c.prompt());
+        self.tabs[i].active_cmd = Some(c);
+    }
+
+    /// Padrão "<nome>" para a pergunta do alinhamento: o único do desenho, se houver um só.
+    fn civil_pergunta_eixo(&self, i: usize) -> String {
+        match self.civil_al_escolher(i, None) {
+            Ok(n) => format!("Alignment name <{n}>:"),
+            Err(_) => "Alignment name:".into(),
+        }
+    }
+
+    fn civil_pergunta_superficie(&self, i: usize, eixo: Option<&str>) -> String {
+        let da = eixo.and_then(|e| self.civil_al_ler(i, e).ok()).map(|a| a.superficie).filter(|s| !s.is_empty());
+        match da.or_else(|| self.civil_escolher(i, None).ok()) {
+            Some(n) => format!("Surface name <{n}>:"),
+            None => "Surface name:".into(),
+        }
+    }
+
     fn civil_pedir_ponto(&mut self, i: usize, nome: &'static str, texto: &str, pendente: String) {
         use crate::command::CadCommand;
         let c = crate::modules::civil::pegar_ponto::PegarPontoCommand::new(nome, texto, pendente, false);
@@ -44,8 +65,23 @@ impl OpenCADStudio {
     pub(super) fn dispatch_alinhamento(&mut self, verbo: &str, args: &[&str], i: usize) -> Option<Task<Message>> {
         match verbo {
             "CREATEALIGNMENT" => {
-                let nome = args.first().map(|s| s.to_string()).unwrap_or_else(|| self.civil_proximo_eixo(i));
-                if let Some(camada) = args.get(1) {
+                if args.is_empty() {
+                    let sel = self.tabs[i].scene.selected_handles_in_order();
+                    let nome = self.civil_proximo_eixo(i);
+                    if sel.len() == 1 {
+                        // Uma polilinha já selecionada vira o eixo (o jeito mais rápido na tela).
+                        let r = self.civil_criar_alinhamento(i, &nome, sel[0]);
+                        self.tabs[i].scene.deselect_all();
+                        self.civil_al_resultado(r);
+                    } else {
+                        let c = crate::modules::civil::perguntas::PerguntasCommand::com(
+                            "CREATEALIGNMENT",
+                            "CREATEALIGNMENT",
+                            vec![format!("Alignment name <{nome}>:")],
+                        );
+                        self.civil_instalar(i, Box::new(c));
+                    }
+                } else if let Some(camada) = args.get(1) {
                     let fonte = self.tabs[i]
                         .scene
                         .document
@@ -54,30 +90,21 @@ impl OpenCADStudio {
                         .find(|e| crate::app::civil_alinhamento::vertices_com_bulge(e).is_some_and(|(v, _)| v.len() >= 2))
                         .map(|e| e.common().handle);
                     let r = match fonte {
-                        Some(h) => self.civil_criar_alinhamento(i, &nome, h),
+                        Some(h) => self.civil_criar_alinhamento(i, args[0], h),
                         None => Err(format!("No polyline on layer {camada}.")),
                     };
                     self.civil_al_resultado(r);
                 } else {
-                    // Uma polilinha já selecionada vira o eixo; senão, pede para selecionar.
-                    let sel = self.tabs[i].scene.selected_handles_in_order();
-                    if sel.len() == 1 {
-                        let r = self.civil_criar_alinhamento(i, &nome, sel[0]);
-                        self.tabs[i].scene.deselect_all();
-                        self.civil_al_resultado(r);
-                    } else {
-                        use crate::command::CadCommand;
-                        use crate::modules::draw::select::SelectObjectsCommand;
-                        let c = SelectObjectsCommand::filtered(
-                            "CREATEALIGNMENT",
-                            &format!("_ALIGNFROMSEL {nome}"),
-                            "Select the polyline of the alignment:",
-                            |e| crate::app::civil_alinhamento::vertices_com_bulge(e).is_some_and(|(v, _)| v.len() >= 2),
-                        );
-                        self.command_line.push_info(&c.prompt());
-                        self.tabs[i].active_cmd = Some(Box::new(c));
-                    }
+                    let c = crate::modules::civil::eixo_fonte::EixoFonteCommand::new(args[0]);
+                    self.civil_instalar(i, Box::new(c));
                 }
+            }
+            "_ALIGNFROMHANDLE" => {
+                let r = match (args.first(), args.get(1).and_then(|h| u64::from_str_radix(h, 16).ok())) {
+                    (Some(n), Some(h)) => self.civil_criar_alinhamento(i, n, document::Handle::new(h)),
+                    _ => Err("Usage: _ALIGNFROMHANDLE name handle".into()),
+                };
+                self.civil_al_resultado(r);
             }
             "_ALIGNFROMSEL" => {
                 let nome = args.first().map(|s| s.to_string()).unwrap_or_else(|| self.civil_proximo_eixo(i));
@@ -95,6 +122,16 @@ impl OpenCADStudio {
                     _ => Err("Usage: ALIGNMENTSTATIONS alignment start_station [interval]".into()),
                 };
                 self.civil_al_resultado(r);
+            }
+            "CREATEPROFILEVIEW" if args.is_empty() => {
+                let um = self.civil_al_escolher(i, None).ok();
+                let c = crate::modules::civil::perguntas::PerguntasCommand::com(
+                    "CREATEPROFILEVIEW",
+                    "CREATEPROFILEVIEW",
+                    vec![self.civil_pergunta_eixo(i), self.civil_pergunta_superficie(i, um.as_deref()), "Vertical exaggeration <10>:".into()],
+                )
+                .e_ponto("Specify the lower left corner of the profile view:");
+                self.civil_instalar(i, Box::new(c));
             }
             "CREATEPROFILEVIEW" => {
                 let r = (|| -> Result<Option<String>, String> {
@@ -126,6 +163,10 @@ impl OpenCADStudio {
                     Err(e) => self.civil_al_resultado(Err(e)),
                 }
             }
+            "CREATEPROFILE" if args.is_empty() && self.civil_al_escolher(i, None).is_err() => {
+                let c = crate::modules::civil::perguntas::PerguntasCommand::com("CREATEPROFILE", "CREATEPROFILE", vec![self.civil_pergunta_eixo(i)]);
+                self.civil_instalar(i, Box::new(c));
+            }
             "CREATEPROFILE" => match self.civil_al_escolher(i, args.first().copied()) {
                 Ok(eixo) if args.len() > 1 => {
                     return Some(self.dispatch_command(&format!("_SETPROFILE {eixo} {}", args[1..].join(" "))));
@@ -155,6 +196,21 @@ impl OpenCADStudio {
                     None => Err("Usage: CREATEPROFILE alignment e,z[,L] ...".into()),
                 };
                 self.civil_al_resultado(r);
+            }
+            "CREATESECTIONS" | "CREATESAMPLELINES" | "CREATESECTIONVIEWS" if args.is_empty() => {
+                let c = crate::modules::civil::perguntas::PerguntasCommand::com(
+                    "CREATESECTIONS",
+                    "CREATESECTIONS",
+                    vec![
+                        self.civil_pergunta_eixo(i),
+                        "Interval (m) <20>:".into(),
+                        "Left width (m) <30>:".into(),
+                        "Right width (m) <30>:".into(),
+                        "Columns <5>:".into(),
+                    ],
+                )
+                .e_ponto("Specify the upper left corner of the section views:");
+                self.civil_instalar(i, Box::new(c));
             }
             "CREATESECTIONS" | "CREATESAMPLELINES" | "CREATESECTIONVIEWS" => {
                 let r = (|| -> Result<Option<String>, String> {
@@ -196,6 +252,14 @@ impl OpenCADStudio {
                 self.civil_al_resultado(r);
             }
             // Versões de linha de comando, que perguntam cada valor.
+            "ALIGNMENTSTATIONS" if args.is_empty() => {
+                let c = crate::modules::civil::perguntas::PerguntasCommand::com(
+                    "ALIGNMENTSTATIONS",
+                    "ALIGNMENTSTATIONS",
+                    vec![self.civil_pergunta_eixo(i), "Start station (m) <0>:".into(), "Station label interval (m) <20>:".into()],
+                );
+                self.civil_instalar(i, Box::new(c));
+            }
             "-CREATEPROFILEVIEW" | "-CREATESECTIONS" | "-ALIGNMENTSTATIONS" => {
                 use crate::modules::civil::perguntas::PerguntasCommand;
                 let c = match verbo {

@@ -329,3 +329,43 @@ fn alinhamento_perfil_greide_e_secoes() {
     assert!(app.tabs[i].scene.document.block_records.get("AGRAL_PERFIL_EIXO1").is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn alinhamento_perfil_e_secoes_pela_linha_de_comando() {
+    let dir = std::env::temp_dir().join(format!("agral_alin_lc_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    plano(&mut app, &dir);
+    app.tabs[i].scene.ensure_layer("EIXO");
+    let mut p = LwPolyline::new();
+    p.vertices = vec![LwVertex::new(Vector2::new(20.0, 100.0)), LwVertex::new(Vector2::new(180.0, 100.0))];
+    p.common.layer = "EIXO".into();
+    app.tabs[i].scene.add_entities(vec![EntityType::LwPolyline(p)]);
+    // Nome padrão (Enter) e a camada digitada no lugar de clicar.
+    for t in ["CREATEALIGNMENT", "", "EIXO"] {
+        digitar(&mut app, t);
+    }
+    assert!(app.civil_al_ler(i, "EIXO1").is_ok(), "eixo criado pela linha de comando");
+    // Vista de perfil: alinhamento e superfície padrão, exagero 5, canto digitado.
+    for t in ["CREATEPROFILEVIEW", "", "", "5", "0,-300"] {
+        digitar(&mut app, t);
+    }
+    let a = app.civil_al_ler(i, "EIXO1").unwrap();
+    assert_eq!(a.vista.as_ref().map(|v| v.exagero), Some(5.0));
+    assert!(app.tabs[i].scene.document.block_records.get("AGRAL_PERFIL_EIXO1").is_some());
+    // Greide pela linha de comando.
+    for t in ["CREATEPROFILE", "0,106", "160,106,0", ""] {
+        digitar(&mut app, t);
+    }
+    assert_eq!(app.civil_al_ler(i, "EIXO1").unwrap().pivs.len(), 2);
+    // Seções com os padrões e o canto digitado.
+    for t in ["CREATESECTIONS", "", "40", "", "", "", "400,0"] {
+        digitar(&mut app, t);
+    }
+    let s = app.civil_al_ler(i, "EIXO1").unwrap().secoes.expect("seções");
+    assert_eq!((s.intervalo, s.esquerda, s.direita, s.colunas), (40.0, 30.0, 30.0, 5));
+    assert!(app.tabs[i].active_cmd.is_none(), "nenhum comando ficou pendurado");
+    let _ = std::fs::remove_dir_all(&dir);
+}

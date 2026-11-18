@@ -109,6 +109,7 @@ impl CadModule for CivilModule {
 }
 
 /// Aba contextual TIN Surface: aparece com uma superfície selecionada (como no Civil 3D).
+pub mod eixo_fonte;
 pub mod pegar_ponto;
 pub mod pivs;
 pub mod perguntas;
