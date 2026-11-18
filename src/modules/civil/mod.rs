@@ -192,10 +192,92 @@ impl CadModule for TinSurfaceModule {
                             include_bytes!("../../../assets/icons/civil_landxml_out.svg"),
                         )),
                         RibbonItem::LargeTool(ferramenta("ZOOMSURFACE", "Zoom\nto", zoom)),
+                        RibbonItem::LargeTool(ferramenta(
+                            "OBJECTVIEWER",
+                            "Object\nViewer",
+                            include_bytes!("../../../assets/icons/civil_objectviewer.svg"),
+                        )),
                         RibbonItem::LargeTool(ferramenta("TOOLSPACE", "Toolspace", tsp)),
                     ],
                 },
             ]
+        })
+    }
+}
+
+/// Aba Home do Agral CAD, a primeira da faixa, como a do Civil 3D (pedido do JP, 18/11: "uma abinha Home com meus
+/// negócios"): painéis, dados do terreno, projeto (eixo, greide, barragem, corredor), vistas de perfil e seção,
+/// e os painéis de desenho, edição, camadas e área de transferência da aba Draw.
+pub struct HomeModule;
+
+impl CadModule for HomeModule {
+    fn id(&self) -> &'static str {
+        "home"
+    }
+    fn title(&self) -> &'static str {
+        "Home"
+    }
+
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
+        static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+        GROUPS.get_or_init(|| {
+            let ic = |n: &str| -> &'static [u8] {
+                match n {
+                    "toolspace" => include_bytes!("../../../assets/icons/civil_toolspace.svg"),
+                    "surface" => include_bytes!("../../../assets/icons/civil_surface.svg"),
+                    "contours" => include_bytes!("../../../assets/icons/civil_contours.svg"),
+                    "pointfile" => include_bytes!("../../../assets/icons/civil_pointfile.svg"),
+                    "landxml" => include_bytes!("../../../assets/icons/civil_landxml_in.svg"),
+                    "alignment" => include_bytes!("../../../assets/icons/civil_alignment.svg"),
+                    "profile" => include_bytes!("../../../assets/icons/civil_profile.svg"),
+                    "assembly" => include_bytes!("../../../assets/icons/civil_assembly.svg"),
+                    "corridor" => include_bytes!("../../../assets/icons/civil_corridor.svg"),
+                    "profileview" => include_bytes!("../../../assets/icons/civil_profileview.svg"),
+                    "sections" => include_bytes!("../../../assets/icons/civil_sections.svg"),
+                    _ => include_bytes!("../../../assets/icons/civil_objectviewer.svg"),
+                }
+            };
+            let mut g = vec![
+                RibbonGroup {
+                    title: "Palettes",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("TOOLSPACE", "Toolspace", ic("toolspace"))),
+                        RibbonItem::LargeTool(ferramenta("OBJECTVIEWER", "Object\nViewer", ic("viewer"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Create Ground Data",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("CREATESURFACE", "Surface", ic("surface"))),
+                        RibbonItem::Tool(ferramenta("ADDSURFACECONTOURS", "Contours", ic("contours"))),
+                        RibbonItem::Tool(ferramenta("ADDSURFACEPOINTFILE", "Point File", ic("pointfile"))),
+                        RibbonItem::Tool(ferramenta("IMPORTLANDXMLSURFACE", "LandXML", ic("landxml"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Create Design",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("CREATEALIGNMENT", "Alignment", ic("alignment"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEPROFILE", "Profile", ic("profile"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEASSEMBLY", "Assembly", ic("assembly"))),
+                        RibbonItem::LargeTool(ferramenta("CREATECORRIDOR", "Corridor", ic("corridor"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Profile & Section Views",
+                    tools: vec![
+                        RibbonItem::Tool(ferramenta("CREATEPROFILEVIEW", "Profile View", ic("profileview"))),
+                        RibbonItem::Tool(ferramenta("CREATESECTIONS", "Section Views", ic("sections"))),
+                    ],
+                },
+            ];
+            // Os painéis de desenho e edição são os mesmos da aba Draw (um lugar só para mudar).
+            for p in crate::modules::draw::DrawModule.ribbon_groups() {
+                if matches!(p.title, "Draw" | "Modify" | "Layers" | "Clipboard") {
+                    g.push(p.clone());
+                }
+            }
+            g
         })
     }
 }

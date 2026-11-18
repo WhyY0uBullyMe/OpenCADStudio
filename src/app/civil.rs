@@ -805,7 +805,7 @@ pub(crate) fn marcar(e: &mut EntityType, valor: &str) {
 }
 
 /// O TIN como poucas entidades MESH (não um 3DFACE por triângulo).
-fn malhas(tin: &Tin, camada: &str, nome: &str) -> Vec<EntityType> {
+pub(crate) fn malhas(tin: &Tin, camada: &str, nome: &str) -> Vec<EntityType> {
     let mut saida = Vec::new();
     let mut mapa: Vec<u32> = vec![u32::MAX; tin.vertices.len()];
     let mut usados: Vec<u32> = Vec::new();

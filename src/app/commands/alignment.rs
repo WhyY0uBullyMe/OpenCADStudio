@@ -300,6 +300,24 @@ impl OpenCADStudio {
                 let r = self.civil_al_escolher(i, args.first().copied()).and_then(|n| self.civil_redesenhar_alinhamento(i, &n));
                 self.civil_al_resultado(r);
             }
+            // OBJECTVIEWER [exagero vertical]: os objetos selecionados em 3D num desenho à parte.
+            "OBJECTVIEWER" | "_OBJECTVIEWERSEL" => {
+                let ex = num(args.first(), 1.0).unwrap_or(1.0).max(0.01);
+                let sel = self.tabs[i].scene.selected_handles_in_order();
+                if sel.is_empty() && verbo == "OBJECTVIEWER" {
+                    use crate::command::CadCommand;
+                    use crate::modules::draw::select::SelectObjectsCommand;
+                    let c = SelectObjectsCommand::filtered("OBJECTVIEWER", &format!("_OBJECTVIEWERSEL {ex}"), "Select objects to view in 3D:", |_| true);
+                    self.command_line.push_info(&c.prompt());
+                    self.tabs[i].active_cmd = Some(Box::new(c));
+                } else {
+                    self.tabs[i].scene.deselect_all();
+                    match self.civil_object_viewer(i, &sel, ex) {
+                        Ok(t) => return Some(t),
+                        Err(e) => self.command_line.push_error(&e),
+                    }
+                }
+            }
             "DELETEALIGNMENT" => {
                 let r = match args.first() {
                     Some(n) => self.civil_apagar_alinhamento(i, n),

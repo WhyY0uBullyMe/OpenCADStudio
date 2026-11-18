@@ -187,6 +187,8 @@ pub(super) struct DocumentTab {
     pub(crate) civil_tins_pendente: bool,
     /// `edit_revision` da última conferência de TINs faltando (evita ler as superfícies a cada passo do mouse).
     pub(crate) civil_tins_conferido: Option<u64>,
+    /// Aba do Object Viewer: só para olhar, nunca pede para salvar.
+    pub(crate) civil_visualizador: bool,
     /// A whole document replaced this tab's content (file open, template new,
     /// system open) and native plugins have not been told yet: the
     /// message boundary (`OpenCADStudio::notify_plugins_document_opened`,
@@ -847,6 +849,7 @@ impl DocumentTab {
             civil_tins: Default::default(),
             civil_tins_pendente: false,
             civil_tins_conferido: None,
+            civil_visualizador: false,
             document_opened_pending: true,
             prev_selection: Vec::new(),
             tab_title: format!("Drawing{}", n),

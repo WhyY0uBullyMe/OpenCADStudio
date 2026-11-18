@@ -1054,6 +1054,7 @@ inventory::submit!(crate::command::CommandRegistration {
         "CREATESECTIONVIEWS",
         "REBUILDALIGNMENT",
         "CREATEASSEMBLY",
+        "OBJECTVIEWER",
         "CREATECORRIDOR",
         "REBUILDCORRIDOR",
         "DELETEALIGNMENT",

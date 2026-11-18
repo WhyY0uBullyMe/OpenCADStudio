@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 /// Called once at startup by `Ribbon::new()`.
 pub fn all_modules() -> Vec<Box<dyn CadModule>> {
     vec![
+        Box::new(super::civil::HomeModule),
         Box::new(super::draw::DrawModule),
         Box::new(super::civil::CivilModule),
         Box::new(super::parametric::ParametricModule),

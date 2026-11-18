@@ -431,3 +431,37 @@ fn corredor_de_barragem_em_terreno_plano() {
     assert!(linhas.iter().all(|h| app.tabs[i].scene.document.get_entity(*h).is_none()), "apagar o eixo apaga as linhas do corredor");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn object_viewer_abre_a_superficie_em_3d_num_desenho_a_parte() {
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    app.tabs[i].scene.ensure_layer("CURVAS");
+    app.tabs[i].scene.add_entities(vec![curva(100.0, 0.0), curva(101.0, 10.0), curva(102.0, 20.0)]);
+    command(&mut app, "CREATESURFACE EG");
+    command(&mut app, "ADDSURFACECONTOURS EG CURVAS FIX=0");
+    let s = crate::civil::superficies(&app.tabs[i].scene.document).remove(0);
+    let antes = app.tabs[i].scene.document.entities().count();
+    app.tabs[i].scene.select_entity(s.desenho[0], true);
+    command(&mut app, "OBJECTVIEWER 3");
+    let j = app.active_tab;
+    assert_ne!(i, j, "abre num desenho à parte");
+    assert_eq!(app.tabs[j].tab_title, "Object Viewer (Z x3)");
+    assert!(!app.tabs[j].dirty, "fechar não pergunta se quer salvar");
+    let malhas: Vec<_> = app.tabs[j].scene.document.entities().filter_map(|e| match e {
+        EntityType::Mesh(m) => Some(m.clone()),
+        _ => None,
+    }).collect();
+    assert!(!malhas.is_empty(), "a superfície vira malha");
+    let zmax = malhas.iter().flat_map(|m| m.vertices.iter().map(|v| v.z)).fold(f64::MIN, f64::max);
+    assert!((zmax - 106.0).abs() < 1e-6, "exagero 3x a partir de 100: 102 vira 106 ({zmax})");
+    assert_eq!(app.tabs[i].scene.document.entities().count(), antes, "o desenho original não muda");
+    // A aba Home existe e é a primeira.
+    let mods = crate::modules::registry::all_modules();
+    assert_eq!(mods[0].id(), "home");
+    let titulos: Vec<_> = mods[0].ribbon_groups().iter().map(|g| g.title).collect();
+    for t in ["Palettes", "Create Ground Data", "Create Design", "Profile & Section Views", "Draw", "Modify", "Layers"] {
+        assert!(titulos.contains(&t), "{t} em {titulos:?}");
+    }
+}

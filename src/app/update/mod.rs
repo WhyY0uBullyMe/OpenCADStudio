@@ -700,6 +700,10 @@ impl OpenCADStudio {
         if pointer_motion {
             task = Task::batch([task, self.civil_preparar_cota(), self.civil_cota_mouse_andou()]);
         }
+        // Agral Civil: a aba do Object Viewer é só para olhar; nunca fica como "alterada".
+        for t in self.tabs.iter_mut().filter(|t| t.civil_visualizador) {
+            t.dirty = false;
+        }
         // Agral Civil: montagens de superfície que um comando pediu em segundo plano.
         if !self.civil_tarefas.is_empty() {
             task = Task::batch([task, Task::batch(std::mem::take(&mut self.civil_tarefas))]);
