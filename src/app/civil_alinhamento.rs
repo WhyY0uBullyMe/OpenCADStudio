@@ -11,6 +11,7 @@ use super::OpenCADStudio;
 use crate::app::civil::{marcar, montar_entrada};
 use crate::civil::alinhamentos::{AlinhamentoDwg, Secoes, VistaPerfil, DICIONARIO};
 use agral_civil_motor::alinhamento::{perfil_do_terreno, secao_do_terreno, texto_da_estaca, Alinhamento, Greide, Piv};
+use agral_civil_motor::corredor::{secao_do_corredor, volumes, AssemblyBarragem, Codigo, SecaoCorredor};
 use agral_civil_motor::tin::Tin;
 use document::entities::{Line, LwPolyline, LwVertex, Text, TextHorizontalAlignment, TextVerticalAlignment};
 use document::types::{Vector2, Vector3};
@@ -24,6 +25,13 @@ pub(crate) const CAMADA_TN: (&str, i16) = ("C-PERFIL-TN", 3);
 pub(crate) const CAMADA_GREIDE: (&str, i16) = ("C-PERFIL-GREIDE", 1);
 pub(crate) const CAMADA_TEXTO: (&str, i16) = ("C-PERFIL-TEXTO", 7);
 pub(crate) const CAMADA_SECAO: (&str, i16) = ("C-SECAO-LINHA", 4);
+pub(crate) const CAMADA_CORREDOR: (&str, i16) = ("C-CORREDOR", 6);
+pub(crate) const CAMADA_SAIA: (&str, i16) = ("C-CORREDOR-SAIA", 30);
+
+/// Nome da superfície do corredor do eixo.
+pub(crate) fn superficie_do_corredor(eixo: &str) -> String {
+    format!("{eixo}-CORR")
+}
 
 fn bloco(tipo: &str, nome: &str) -> String {
     format!("AGRAL_{tipo}_{nome}")
@@ -243,10 +251,151 @@ impl OpenCADStudio {
         self.civil_redesenhar_alinhamento(i, nome)
     }
 
+    /// `CREATEASSEMBLY`: o assembly da barragem do eixo.
+    pub(crate) fn civil_definir_assembly(&mut self, i: usize, nome: &str, asm: AssemblyBarragem) -> Result<String, String> {
+        let mut a = self.civil_al_ler(i, nome)?;
+        if !(asm.crista > 0.0 && asm.talude_montante > 0.0 && asm.talude_jusante > 0.0 && asm.talude_corte > 0.0) {
+            return Err("Crest width and slopes must be positive.".into());
+        }
+        self.push_undo_snapshot(i, "CREATEASSEMBLY");
+        a.assembly = Some(asm);
+        self.civil_al_gravar(i, &a, false)?;
+        let msg = self.civil_redesenhar_alinhamento(i, nome)?;
+        Ok(format!("Assembly of '{nome}' set. {msg}"))
+    }
+
+    /// `CREATECORRIDOR`: corredor do eixo com seções a cada `passo` m (e nas estacas notáveis).
+    pub(crate) fn civil_criar_corredor(&mut self, i: usize, nome: &str, passo: f64) -> Result<String, String> {
+        let mut a = self.civil_al_ler(i, nome)?;
+        if !(passo > 0.0) {
+            return Err("The corridor frequency must be more than zero.".into());
+        }
+        if a.pivs.is_empty() {
+            return Err(format!("Alignment '{nome}' has no design profile: use CREATEPROFILE first (the crest elevation)."));
+        }
+        if a.superficie.is_empty() {
+            return Err(format!("Alignment '{nome}' has no surface: create its profile view first."));
+        }
+        if a.assembly.is_none() {
+            a.assembly = Some(AssemblyBarragem::default());
+        }
+        self.push_undo_snapshot(i, "CREATECORRIDOR");
+        a.corredor = Some(passo);
+        self.civil_al_gravar(i, &a, false)?;
+        self.civil_redesenhar_alinhamento(i, nome)
+    }
+
+    /// Desenha o corredor: polilinhas 3D por código (crista, bermas, saia, eixo), o limite pela saia, e a superfície
+    /// do corredor (linhas como linhas de quebra, limite externo pela saia: sem "dentes").
+    fn civil_desenhar_corredor(&mut self, i: usize, a: &mut AlinhamentoDwg, secoes: &[SecaoCorredor]) -> Result<String, String> {
+        let scene = &mut self.tabs[i].scene;
+        scene.erase_entities(&a.desenho_corredor);
+        for (camada, cor) in [CAMADA_CORREDOR, CAMADA_SAIA] {
+            if !scene.document.layers.contains(camada) {
+                scene.ensure_layer(camada);
+                if let Some(l) = scene.document.layers.get_mut(camada) {
+                    l.color = document::Color::Index(cor as u8);
+                }
+            }
+        }
+        let al = a.geometria().ok_or("Alignment without geometry.")?;
+        // Trilhas: (lado, código) -> trechos contínuos de pontos 3D.
+        let mut trilhas: std::collections::BTreeMap<(i8, String), Vec<Vec<[f64; 3]>>> = Default::default();
+        let mut vistas: std::collections::BTreeSet<(i8, String)> = Default::default();
+        for s in secoes {
+            let mut desta: std::collections::BTreeSet<(i8, String)> = Default::default();
+            for (o, z, c) in &s.pontos {
+                let lado = if *o < -1e-9 { -1 } else if *o > 1e-9 { 1 } else { 0 };
+                let chave = (lado, format!("{c:?}"));
+                let p = al.ponto_com_offset(s.estaca, *o);
+                let t = trilhas.entry(chave.clone()).or_default();
+                if !vistas.contains(&chave) || t.is_empty() {
+                    t.push(Vec::new());
+                }
+                t.last_mut().unwrap().push([p[0], p[1], *z]);
+                desta.insert(chave);
+            }
+            // Código que sumiu nesta estaca fecha o trecho: a próxima vez começa outro.
+            vistas = desta;
+        }
+        let mut novas: Vec<EntityType> = Vec::new();
+        for ((lado, codigo), trechos) in &trilhas {
+            for t in trechos.iter().filter(|t| t.len() >= 2) {
+                let mut pl = document::entities::Polyline3D::from_points(t.iter().map(|p| Vector3::new(p[0], p[1], p[2])).collect());
+                pl.common.layer = if codigo == "Saia" { CAMADA_SAIA.0.into() } else { CAMADA_CORREDOR.0.into() };
+                let mut e = EntityType::Polyline3D(pl);
+                marcar(&mut e, &format!("CORRIDOR:{}:{lado}:{codigo}", a.nome));
+                novas.push(e);
+            }
+        }
+        // Limite: saia esquerda em frente e a direita de volta (só onde as duas existem em todas as seções).
+        let mut limite: Vec<[f64; 3]> = Vec::new();
+        let completas: Vec<&SecaoCorredor> = secoes.iter().filter(|s| s.completa).collect();
+        for s in &completas {
+            let (o, z, _) = s.pontos[0];
+            let p = al.ponto_com_offset(s.estaca, o);
+            limite.push([p[0], p[1], z]);
+        }
+        for s in completas.iter().rev() {
+            let (o, z, _) = *s.pontos.last().unwrap();
+            let p = al.ponto_com_offset(s.estaca, o);
+            limite.push([p[0], p[1], z]);
+        }
+        let tem_limite = limite.len() >= 4;
+        if tem_limite {
+            let mut pl = document::entities::Polyline3D::from_points(limite.iter().map(|p| Vector3::new(p[0], p[1], p[2])).collect());
+            pl.flags.closed = true;
+            pl.common.layer = CAMADA_SAIA.0.into();
+            let mut e = EntityType::Polyline3D(pl);
+            marcar(&mut e, &format!("CORRIDOR:{}:BOUNDARY", a.nome));
+            novas.push(e);
+        }
+        let handles = self.tabs[i].scene.add_entities(novas);
+        a.desenho_corredor = handles.clone();
+        // Superfície do corredor: cria se não existe; troca as fontes pelas linhas novas.
+        let nome_sup = superficie_do_corredor(&a.nome);
+        if self.civil_ler(i, &nome_sup).is_err() {
+            self.civil_criar(i, &nome_sup, &format!("Corridor of {}", a.nome), "")?;
+        }
+        let mut sup = self.civil_ler(i, &nome_sup)?;
+        sup.itens.retain(|it| it.descricao != "corridor");
+        let (linhas, lim): (Vec<_>, Vec<_>) = if tem_limite {
+            let (l, b) = handles.split_at(handles.len() - 1);
+            (l.to_vec(), b.to_vec())
+        } else {
+            (handles.clone(), Vec::new())
+        };
+        let mut q = crate::civil::definicao::ItemDwg::novo("BREAKLINES", "corridor");
+        q.fontes = linhas;
+        sup.itens.push(q);
+        if !lim.is_empty() {
+            let mut b = crate::civil::definicao::ItemDwg::novo("BOUNDARY_OUTER", "corridor");
+            b.fontes = lim;
+            sup.itens.push(b);
+        }
+        sup.desatualizada = true;
+        {
+            let mut host = crate::app::plugin_host::HostSession::new(self, i);
+            host.update_xrecord(&crate::civil::definicao::DICIONARIO, &sup.nome, sup.para_xrecord())?;
+        }
+        let msg_sup = self.civil_refazer(i, &nome_sup)?;
+        let (va, vc) = volumes(secoes);
+        a.volumes = Some((va, vc));
+        let incompletas = secoes.len() - completas.len();
+        Ok(format!(
+            "Corridor: {} sections, fill {:.1} m3, cut {:.1} m3{}. {msg_sup}",
+            secoes.len(),
+            va,
+            vc,
+            if incompletas > 0 { format!(" ({incompletas} sections did not reach the terrain)") } else { String::new() }
+        ))
+    }
+
     pub(crate) fn civil_apagar_alinhamento(&mut self, i: usize, nome: &str) -> Result<String, String> {
         let a = self.civil_al_ler(i, nome)?;
         self.push_undo_snapshot(i, "DELETEALIGNMENT");
         let scene = &mut self.tabs[i].scene;
+        scene.erase_entities(&a.desenho_corredor);
         for (tipo, hs) in [("ALINHAMENTO", &a.desenho), ("PERFIL", &a.desenho_perfil), ("SECOES", &a.desenho_secoes)] {
             scene.erase_entities(hs);
             let b = bloco(tipo, &a.nome);
@@ -271,7 +420,7 @@ impl OpenCADStudio {
         if conteudo.is_empty() {
             return Vec::new();
         }
-        for (camada, cor) in [CAMADA_EIXO, CAMADA_ESTACA, CAMADA_GRADE, CAMADA_TN, CAMADA_GREIDE, CAMADA_TEXTO, CAMADA_SECAO] {
+        for (camada, cor) in [CAMADA_EIXO, CAMADA_ESTACA, CAMADA_GRADE, CAMADA_TN, CAMADA_GREIDE, CAMADA_TEXTO, CAMADA_SECAO, CAMADA_CORREDOR] {
             if !scene.document.layers.contains(camada) && conteudo.iter().any(|e| e.common().layer == camada) {
                 scene.ensure_layer(camada);
                 if let Some(l) = scene.document.layers.get_mut(camada) {
@@ -316,10 +465,21 @@ impl OpenCADStudio {
                 None => {}
             }
         }
+        // Corredor: seções a cada passo e nas estacas notáveis.
+        let asm = a.assembly.clone().unwrap_or_default();
+        let corredor_ok = a.corredor.is_some() && greide.is_some() && matches!(&tin, Some(Ok(_)));
+        if let (Some(passo), Some(g), Some(Ok(t))) = (a.corredor, greide.as_ref(), &tin) {
+            let secoes: Vec<SecaoCorredor> = al.estacas(passo).into_iter().map(|e| secao_do_corredor(t, &al, e, g.cota(e), &asm)).collect();
+            match self.civil_desenhar_corredor(i, &mut a, &secoes) {
+                Ok(m) => msgs.push(m),
+                Err(e) => msgs.push(format!("Corridor not drawn: {e}")),
+            }
+        }
         if let Some(s) = a.secoes.clone() {
             match &tin {
                 Some(Ok(t)) => {
-                    let (ents, n) = desenho_das_secoes(t, &al, greide.as_ref(), &s);
+                    let gabarito = corredor_ok.then_some(&asm);
+                    let (ents, n) = desenho_das_secoes(t, &al, greide.as_ref(), &s, gabarito);
                     a.desenho_secoes = self.civil_al_trocar_desenho(i, "SECOES", "SECTIONS", &a.nome.clone(), &a.desenho_secoes.clone(), ents);
                     msgs.push(format!("{n} cross sections."));
                 }
@@ -482,7 +642,7 @@ fn desenho_do_perfil(
 }
 
 /// Linhas de seção na planta e as vistas de seção (escala 1:1), em grade.
-fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &Secoes) -> (Vec<EntityType>, usize) {
+fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &Secoes, gabarito: Option<&AssemblyBarragem>) -> (Vec<EntityType>, usize) {
     let mut out = Vec::new();
     let estacas = al.estacas(s.intervalo);
     let alt = (s.intervalo / 8.0).clamp(0.5, 5.0);
@@ -490,6 +650,13 @@ fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &
     let passo = (largura / 200.0).max(0.25);
     let secoes: Vec<(f64, Vec<(f64, f64)>)> =
         estacas.iter().map(|e| (*e, secao_do_terreno(tin, al, *e, s.esquerda, s.direita, passo))).collect();
+    let corr: Vec<Option<SecaoCorredor>> = estacas
+        .iter()
+        .map(|e| match (gabarito, greide) {
+            (Some(a), Some(g)) => Some(secao_do_corredor(tin, al, *e, g.cota(*e), a)),
+            _ => None,
+        })
+        .collect();
     // Altura de cada vista: a maior faixa de cotas entre as seções, para a grade ficar alinhada.
     let mut faixa: f64 = 2.0;
     for (e, sec) in &secoes {
@@ -498,6 +665,12 @@ fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &
         if let Some(g) = greide {
             lo = lo.min(g.cota(*e));
             hi = hi.max(g.cota(*e));
+        }
+        if let Some(Some(c)) = corr.get(secoes.iter().position(|x| x.0 == *e).unwrap_or(0)) {
+            for p in &c.pontos {
+                lo = lo.min(p.1);
+                hi = hi.max(p.1);
+            }
         }
         if lo.is_finite() {
             faixa = faixa.max(hi - lo);
@@ -548,6 +721,24 @@ fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &
         // Eixo, terreno e o ponto do greide.
         out.push(linha([px(0.0), py(base)], [px(0.0), py(base + altura)], CAMADA_EIXO));
         out.extend(polilinha(&sec.iter().map(|(o, z)| [px(*o), py(*z)]).collect::<Vec<_>>(), CAMADA_TN));
+        if let Some(Some(c)) = corr.get(k) {
+            // Gabarito do corredor (só o que cabe na largura da vista) e as áreas.
+            let pts: Vec<[f64; 2]> = c
+                .pontos
+                .iter()
+                .filter(|p| p.0 >= -s.esquerda - 1e-9 && p.0 <= s.direita + 1e-9)
+                .map(|p| [px(p.0), py(p.1)])
+                .collect();
+            out.extend(polilinha(&pts, CAMADA_CORREDOR));
+            out.push(texto(
+                format!("Fill {:.2} m2  Cut {:.2} m2", c.area_aterro, c.area_corte),
+                [x0 + largura / 2.0, y0 - alt * 1.8],
+                alt * 0.6,
+                0.0,
+                true,
+                CAMADA_TEXTO,
+            ));
+        }
         if let Some(g) = greide {
             let zg = g.cota(*e);
             let c = [px(0.0), py(zg)];

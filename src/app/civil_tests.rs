@@ -373,3 +373,61 @@ fn alinhamento_perfil_e_secoes_pela_linha_de_comando() {
     assert!(app.tabs[i].active_cmd.is_none(), "nenhum comando ficou pendurado");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn corredor_de_barragem_em_terreno_plano() {
+    let dir = std::env::temp_dir().join(format!("agral_corr_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let arq = dir.join("plano100.txt");
+    let mut t = String::new();
+    let mut n = 1;
+    for x in (0..=200).step_by(50) {
+        for y in (0..=200).step_by(50) {
+            t.push_str(&format!("{n},{y},{x},100.000,TN\n"));
+            n += 1;
+        }
+    }
+    std::fs::write(&arq, t).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    command(&mut app, "CREATESURFACE TN");
+    command(&mut app, &format!("ADDSURFACEPOINTFILE TN \"{}\" PNEZD", arq.display()));
+    app.tabs[i].scene.ensure_layer("EIXO");
+    let mut p = LwPolyline::new();
+    p.vertices = vec![LwVertex::new(Vector2::new(20.0, 100.0)), LwVertex::new(Vector2::new(180.0, 100.0))];
+    p.common.layer = "EIXO".into();
+    app.tabs[i].scene.add_entities(vec![EntityType::LwPolyline(p)]);
+    command(&mut app, "CREATEALIGNMENT EIXO1 EIXO");
+    command(&mut app, "CREATEPROFILEVIEW EIXO1 TN 10 0,-300");
+    command(&mut app, "CREATEPROFILE EIXO1 0,110 160,110");
+    // Crista 6 m sem declividade, montante 3:1 à esquerda, jusante 2:1, berma de 3 m a cada 8 m.
+    command(&mut app, "CREATEASSEMBLY EIXO1 6 0 L 3 2 8 3 1");
+    command(&mut app, "CREATECORRIDOR EIXO1 20");
+    let a = app.civil_al_ler(i, "EIXO1").unwrap();
+    let (va, vc) = a.volumes.expect("volumes do corredor");
+    // Seção constante de 322 m² (crista 60 + montante 156 + jusante 106) em 160 m.
+    let esperado = 322.0 * 160.0;
+    assert!((va - esperado).abs() / esperado < 0.005, "aterro {va} x {esperado}");
+    assert!(vc < 1.0, "corte {vc}");
+    // Superfície do corredor: crista a 110 no eixo, saia a 100 a 36 m para montante (norte), nada fora da saia.
+    let sup = crate::app::civil_alinhamento::superficie_do_corredor("EIXO1");
+    let tin = app.civil_tin(i, &sup).expect("superfície do corredor montada");
+    assert!((tin.cota_em(100.0, 100.0).unwrap() - 110.0).abs() < 1e-6);
+    assert!((tin.cota_em(100.0, 101.0).unwrap() - 110.0).abs() < 1e-6, "crista plana");
+    let z_talude = tin.cota_em(100.0, 100.0 + 3.0 + 12.0).unwrap();
+    assert!((z_talude - 106.0).abs() < 1e-3, "no meio do talude de montante 3:1: {z_talude}");
+    assert!(tin.cota_em(100.0, 100.0 + 40.0).is_none(), "fora da saia não tem superfície (sem dentes)");
+    // Seções mostram o gabarito e a área.
+    command(&mut app, "CREATESECTIONS EIXO1 40 50 50 3 400,0");
+    let sec = textos_do_bloco(&app, "AGRAL_SECOES_EIXO1");
+    assert!(sec.iter().any(|t| t.starts_with("Fill 322.0")), "área de aterro na seção: {sec:?}");
+    // Mudou o greide: o corredor acompanha.
+    command(&mut app, "CREATEPROFILE EIXO1 0,108 160,108");
+    let (va2, _) = app.civil_al_ler(i, "EIXO1").unwrap().volumes.unwrap();
+    assert!(va2 < va, "greide mais baixo, menos aterro");
+    let linhas = app.civil_al_ler(i, "EIXO1").unwrap().desenho_corredor;
+    command(&mut app, "DELETEALIGNMENT EIXO1");
+    assert!(linhas.iter().all(|h| app.tabs[i].scene.document.get_entity(*h).is_none()), "apagar o eixo apaga as linhas do corredor");
+    let _ = std::fs::remove_dir_all(&dir);
+}

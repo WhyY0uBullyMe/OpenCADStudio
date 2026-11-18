@@ -240,7 +240,63 @@ impl OpenCADStudio {
                     Err(e) => self.civil_al_resultado(Err(e)),
                 }
             }
-            "REBUILDALIGNMENT" => {
+            // CREATEASSEMBLY [eixo] [crista] [decl %] [montante L|R] [talude montante] [talude jusante] [altura berma]
+            //                [largura berma] [talude corte]
+            "CREATEASSEMBLY" if args.is_empty() => {
+                let c = crate::modules::civil::perguntas::PerguntasCommand::com(
+                    "CREATEASSEMBLY",
+                    "CREATEASSEMBLY",
+                    vec![
+                        self.civil_pergunta_eixo(i),
+                        "Crest width (m) <6>:".into(),
+                        "Crest cross slope toward upstream (%) <1>:".into(),
+                        "Upstream side [L/R] <L>:".into(),
+                        "Upstream slope H:V (H for 1 V) <3>:".into(),
+                        "Downstream slope H:V <2>:".into(),
+                        "Berm every (m of height, 0 = none) <8>:".into(),
+                        "Berm width (m) <3>:".into(),
+                        "Cut slope H:V <1>:".into(),
+                    ],
+                );
+                self.civil_instalar(i, Box::new(c));
+            }
+            "CREATEASSEMBLY" => {
+                let r = (|| -> Result<String, String> {
+                    let eixo = self.civil_al_escolher(i, args.first().copied())?;
+                    let n = |k: usize, d: f64| num(args.get(k), d).ok_or_else(|| format!("Value {} is not a number.", args[k]));
+                    let lado = args.get(3).map(|t| t.to_ascii_uppercase()).unwrap_or_else(|| "L".into());
+                    let asm = agral_civil_motor::corredor::AssemblyBarragem {
+                        crista: n(1, 6.0)?,
+                        decl_crista: n(2, 1.0)? / 100.0,
+                        montante_esquerda: !lado.starts_with('R') && !lado.starts_with('D'),
+                        talude_montante: n(4, 3.0)?,
+                        talude_jusante: n(5, 2.0)?,
+                        altura_berma: n(6, 8.0)?,
+                        largura_berma: n(7, 3.0)?,
+                        talude_corte: n(8, 1.0)?,
+                        alcance: 500.0,
+                    };
+                    self.civil_definir_assembly(i, &eixo, asm)
+                })();
+                self.civil_al_resultado(r);
+            }
+            // CREATECORRIDOR [eixo] [frequência das seções, m]
+            "CREATECORRIDOR" if args.is_empty() => {
+                let c = crate::modules::civil::perguntas::PerguntasCommand::com(
+                    "CREATECORRIDOR",
+                    "CREATECORRIDOR",
+                    vec![self.civil_pergunta_eixo(i), "Section frequency (m) <5>:".into()],
+                );
+                self.civil_instalar(i, Box::new(c));
+            }
+            "CREATECORRIDOR" => {
+                let r = self
+                    .civil_al_escolher(i, args.first().copied())
+                    .and_then(|e| num(args.get(1), 5.0).ok_or("Frequency must be a number.".to_string()).map(|p| (e, p)))
+                    .and_then(|(e, p)| self.civil_criar_corredor(i, &e, p));
+                self.civil_al_resultado(r);
+            }
+            "REBUILDCORRIDOR" | "REBUILDALIGNMENT" => {
                 let r = self.civil_al_escolher(i, args.first().copied()).and_then(|n| self.civil_redesenhar_alinhamento(i, &n));
                 self.civil_al_resultado(r);
             }

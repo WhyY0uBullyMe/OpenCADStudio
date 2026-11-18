@@ -6,6 +6,7 @@
 //! campos sem quebrar as antigas.
 
 use agral_civil_motor::alinhamento::{Alinhamento, Greide, Piv};
+use agral_civil_motor::corredor::AssemblyBarragem;
 use document::objects::{XRecordEntry, XRecordValue};
 use document::Handle;
 
@@ -45,10 +46,17 @@ pub struct AlinhamentoDwg {
     pub pivs: Vec<Piv>,
     pub vista: Option<VistaPerfil>,
     pub secoes: Option<Secoes>,
+    /// Assembly da barragem e o corredor (espaçamento das seções do corredor, m).
+    pub assembly: Option<AssemblyBarragem>,
+    pub corredor: Option<f64>,
+    /// Volumes do último corredor montado (aterro, corte), m³.
+    pub volumes: Option<(f64, f64)>,
     /// Desenho da planta (eixo, estacas), da vista de perfil e das seções.
     pub desenho: Vec<Handle>,
     pub desenho_perfil: Vec<Handle>,
     pub desenho_secoes: Vec<Handle>,
+    /// Linhas do corredor (polilinhas 3D no espaço do modelo, fontes da superfície do corredor).
+    pub desenho_corredor: Vec<Handle>,
 }
 
 impl AlinhamentoDwg {
@@ -64,9 +72,13 @@ impl AlinhamentoDwg {
             pivs: Vec::new(),
             vista: None,
             secoes: None,
+            assembly: None,
+            corredor: None,
+            volumes: None,
             desenho: Vec::new(),
             desenho_perfil: Vec::new(),
             desenho_secoes: Vec::new(),
+            desenho_corredor: Vec::new(),
         }
     }
 
@@ -115,7 +127,25 @@ impl AlinhamentoDwg {
             e.push(XRecordEntry::new(14, XRecordValue::Point3D(s.intervalo, s.esquerda, s.direita)));
             e.push(XRecordEntry::new(90, XRecordValue::Int32(s.colunas as i32)));
         }
-        for (k, hs) in [("drawing", &self.desenho), ("drawing_profile", &self.desenho_perfil), ("drawing_sections", &self.desenho_secoes)] {
+        if let Some(a) = &self.assembly {
+            chave(&mut e, "assembly");
+            for v in [a.crista, a.decl_crista, if a.montante_esquerda { 1.0 } else { 0.0 }, a.talude_montante, a.talude_jusante, a.altura_berma, a.largura_berma, a.talude_corte, a.alcance] {
+                e.push(XRecordEntry::double(40, v));
+            }
+        }
+        if let Some(p) = self.corredor {
+            chave(&mut e, "corridor");
+            e.push(XRecordEntry::double(40, p));
+            let (va, vc) = self.volumes.unwrap_or((f64::NAN, f64::NAN));
+            e.push(XRecordEntry::double(41, va));
+            e.push(XRecordEntry::double(42, vc));
+        }
+        for (k, hs) in [
+            ("drawing", &self.desenho),
+            ("drawing_profile", &self.desenho_perfil),
+            ("drawing_sections", &self.desenho_secoes),
+            ("drawing_corridor", &self.desenho_corredor),
+        ] {
             chave(&mut e, k);
             e.push(XRecordEntry::new(90, XRecordValue::Int32(hs.len() as i32)));
             e.extend(hs.iter().map(|h| XRecordEntry::new(330, XRecordValue::Handle(*h))));
@@ -198,7 +228,31 @@ impl AlinhamentoDwg {
                     a.secoes = Some(Secoes { origem: [o[0], o[1]], intervalo: p[0], esquerda: p[1], direita: p[2], colunas: cont(val(k + 2)?).max(1) });
                     k += 3;
                 }
-                "drawing" | "drawing_profile" | "drawing_sections" => {
+                "assembly" => {
+                    let mut v = [0.0; 9];
+                    for x in v.iter_mut() {
+                        *x = num(val(k)?);
+                        k += 1;
+                    }
+                    a.assembly = Some(AssemblyBarragem {
+                        crista: v[0],
+                        decl_crista: v[1],
+                        montante_esquerda: v[2] != 0.0,
+                        talude_montante: v[3],
+                        talude_jusante: v[4],
+                        altura_berma: v[5],
+                        largura_berma: v[6],
+                        talude_corte: v[7],
+                        alcance: v[8],
+                    });
+                }
+                "corridor" => {
+                    a.corredor = Some(num(val(k)?));
+                    let (va, vc) = (num(val(k + 1)?), num(val(k + 2)?));
+                    a.volumes = (va.is_finite() && vc.is_finite()).then_some((va, vc));
+                    k += 3;
+                }
+                "drawing" | "drawing_profile" | "drawing_sections" | "drawing_corridor" => {
                     let n = cont(val(k)?);
                     k += 1;
                     let mut hs = Vec::new();
@@ -211,7 +265,8 @@ impl AlinhamentoDwg {
                     match chave.as_str() {
                         "drawing" => a.desenho = hs,
                         "drawing_profile" => a.desenho_perfil = hs,
-                        _ => a.desenho_secoes = hs,
+                        "drawing_sections" => a.desenho_secoes = hs,
+                        _ => a.desenho_corredor = hs,
                     }
                 }
                 _ => {}
@@ -236,6 +291,10 @@ mod testes {
         a.secoes = Some(Secoes { intervalo: 20.0, esquerda: 30.0, direita: 40.0, origem: [800.0, -200.0], colunas: 4 });
         a.desenho = vec![Handle::new(0x2A)];
         a.desenho_perfil = vec![Handle::new(0x2B), Handle::new(0x2C)];
+        a.assembly = Some(AssemblyBarragem { crista: 8.0, montante_esquerda: false, ..Default::default() });
+        a.corredor = Some(5.0);
+        a.volumes = Some((12345.6, 7.8));
+        a.desenho_corredor = vec![Handle::new(0x40)];
         let b = AlinhamentoDwg::de_xrecord("EIXO1", &a.para_xrecord()).unwrap();
         assert_eq!(a, b);
         assert!(b.geometria().unwrap().comprimento() > 150.0);
