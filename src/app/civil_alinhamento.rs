@@ -1,0 +1,546 @@
+//! Agral Civil: alinhamento, perfil e seções no desenho (spec 003 R4 a R6 e seções; pedido do JP em 18/11:
+//! "sem essas coisas o programa não me serve ainda").
+//!
+//! Cada alinhamento é um XRECORD em `AGRAL_CIVIL/ALIGNMENTS` (`civil::alinhamentos`). O que ele desenha fica em
+//! três blocos, cada um entrando no desenho como uma inserção marcada (como a superfície):
+//! - planta: eixo, marcas e rótulos das estacas (`AGRAL_ALINHAMENTO_<nome>`, XDATA `ALIGNMENT:<nome>`);
+//! - vista de perfil: grade, terreno, greide e a faixa de cotas (`AGRAL_PERFIL_<nome>`, `PROFILEVIEW:<nome>`);
+//! - seções: linhas de seção na planta e as vistas de seção (`AGRAL_SECOES_<nome>`, `SECTIONS:<nome>`).
+
+use super::OpenCADStudio;
+use crate::app::civil::{marcar, montar_entrada};
+use crate::civil::alinhamentos::{AlinhamentoDwg, Secoes, VistaPerfil, DICIONARIO};
+use agral_civil_motor::alinhamento::{perfil_do_terreno, secao_do_terreno, texto_da_estaca, Alinhamento, Greide, Piv};
+use agral_civil_motor::tin::Tin;
+use document::entities::{Line, LwPolyline, LwVertex, Text, TextHorizontalAlignment, TextVerticalAlignment};
+use document::types::{Vector2, Vector3};
+use document::EntityType;
+use std::sync::Arc;
+
+pub(crate) const CAMADA_EIXO: (&str, i16) = ("C-ALIN", 1);
+pub(crate) const CAMADA_ESTACA: (&str, i16) = ("C-ALIN-ESTACA", 7);
+pub(crate) const CAMADA_GRADE: (&str, i16) = ("C-PERFIL-GRADE", 8);
+pub(crate) const CAMADA_TN: (&str, i16) = ("C-PERFIL-TN", 3);
+pub(crate) const CAMADA_GREIDE: (&str, i16) = ("C-PERFIL-GREIDE", 1);
+pub(crate) const CAMADA_TEXTO: (&str, i16) = ("C-PERFIL-TEXTO", 7);
+pub(crate) const CAMADA_SECAO: (&str, i16) = ("C-SECAO-LINHA", 4);
+
+fn bloco(tipo: &str, nome: &str) -> String {
+    format!("AGRAL_{tipo}_{nome}")
+}
+
+fn linha(a: [f64; 2], b: [f64; 2], camada: (&str, i16)) -> EntityType {
+    let mut l = Line::new();
+    l.start = Vector3::new(a[0], a[1], 0.0);
+    l.end = Vector3::new(b[0], b[1], 0.0);
+    l.common.layer = camada.0.into();
+    EntityType::Line(l)
+}
+
+fn polilinha(pts: &[[f64; 2]], camada: (&str, i16)) -> Option<EntityType> {
+    if pts.len() < 2 {
+        return None;
+    }
+    let mut p = LwPolyline::new();
+    p.vertices = pts.iter().map(|q| LwVertex::new(Vector2::new(q[0], q[1]))).collect();
+    p.common.layer = camada.0.into();
+    Some(EntityType::LwPolyline(p))
+}
+
+/// Texto com o ponto de inserção no meio (horizontal e vertical) ou à esquerda.
+fn texto(valor: String, p: [f64; 2], altura: f64, rotacao: f64, centro: bool, camada: (&str, i16)) -> EntityType {
+    let mut t = Text::new();
+    t.value = valor;
+    t.height = altura;
+    t.rotation = rotacao;
+    t.common.layer = camada.0.into();
+    let v = Vector3::new(p[0], p[1], 0.0);
+    t.insertion_point = v;
+    if centro {
+        t.horizontal_alignment = TextHorizontalAlignment::Center;
+        t.vertical_alignment = TextVerticalAlignment::Middle;
+        t.alignment_point = Some(v);
+    }
+    EntityType::Text(t)
+}
+
+/// Passo "redondo" da grade para cobrir `faixa` com umas 8 linhas.
+fn passo_redondo(faixa: f64, linhas: f64) -> f64 {
+    let bruto = (faixa / linhas).max(1e-6);
+    let base = 10f64.powf(bruto.log10().floor());
+    for m in [1.0, 2.0, 2.5, 5.0, 10.0] {
+        if base * m >= bruto {
+            return base * m;
+        }
+    }
+    base * 10.0
+}
+
+/// Vértices com bulge de uma polilinha do desenho (2D, leve ou 3D sem bulge; linha).
+pub(crate) fn vertices_com_bulge(e: &EntityType) -> Option<(Vec<([f64; 2], f64)>, bool)> {
+    match e {
+        EntityType::LwPolyline(p) => {
+            Some((p.vertices.iter().map(|v| ([v.location.x, v.location.y], v.bulge)).collect(), p.is_closed))
+        }
+        EntityType::Polyline2D(p) => Some((
+            p.vertices.iter().filter(|v| v.flags.bits() & 16 == 0).map(|v| ([v.location.x, v.location.y], v.bulge)).collect(),
+            p.flags.bits() & 1 != 0,
+        )),
+        EntityType::Line(l) => Some((vec![([l.start.x, l.start.y], 0.0), ([l.end.x, l.end.y], 0.0)], false)),
+        _ => crate::civil::curvas::pontos(e).map(|p| (p.iter().map(|q| ([q[0], q[1]], 0.0)).collect(), false)),
+    }
+}
+
+impl OpenCADStudio {
+    pub(crate) fn civil_alinhamentos(&self, i: usize) -> Vec<AlinhamentoDwg> {
+        crate::civil::alinhamentos(&self.tabs[i].scene.document)
+    }
+
+    pub(crate) fn civil_al_ler(&self, i: usize, nome: &str) -> Result<AlinhamentoDwg, String> {
+        self.civil_alinhamentos(i)
+            .into_iter()
+            .find(|a| a.nome.eq_ignore_ascii_case(nome))
+            .ok_or_else(|| format!("Alignment '{nome}' not found."))
+    }
+
+    /// Nome do alinhamento: o dado, ou o único que existe.
+    pub(crate) fn civil_al_escolher(&self, i: usize, nome: Option<&str>) -> Result<String, String> {
+        if let Some(n) = nome {
+            return self.civil_al_ler(i, n).map(|a| a.nome);
+        }
+        let todos = self.civil_alinhamentos(i);
+        match todos.as_slice() {
+            [a] => Ok(a.nome.clone()),
+            [] => Err("No alignments in the drawing. Use CREATEALIGNMENT first.".into()),
+            _ => Err(format!(
+                "Several alignments ({}): name the one to use.",
+                todos.iter().map(|a| a.nome.as_str()).collect::<Vec<_>>().join(", ")
+            )),
+        }
+    }
+
+    fn civil_al_gravar(&mut self, i: usize, a: &AlinhamentoDwg, novo: bool) -> Result<(), String> {
+        let mut host = crate::app::plugin_host::HostSession::new(self, i);
+        let e = a.para_xrecord();
+        if novo {
+            host.create_xrecord(&DICIONARIO, &a.nome, e)?;
+        } else {
+            host.update_xrecord(&DICIONARIO, &a.nome, e)?;
+        }
+        self.tabs[i].dirty = true;
+        Ok(())
+    }
+
+    /// TIN da superfície: o da memória se ainda vale, senão monta agora.
+    pub(crate) fn civil_tin(&mut self, i: usize, nome: &str) -> Result<Arc<Tin>, String> {
+        let s = self.civil_ler(i, nome)?;
+        if let Some((d, t)) = self.tabs[i].civil_tins.get(&s.nome) {
+            if *d == s.desenho && !t.triangulos.is_empty() {
+                return Ok(t.clone());
+            }
+        }
+        let e = self.civil_entrada(i, &s);
+        let t = Arc::new(montar_entrada(e, &std::sync::atomic::AtomicU8::new(0)).tin);
+        if t.triangulos.is_empty() {
+            return Err(format!("Surface '{}' has no triangles.", s.nome));
+        }
+        self.tabs[i].civil_tins.insert(s.nome.clone(), (s.desenho.clone(), t.clone()));
+        Ok(t)
+    }
+
+    pub(crate) fn civil_proximo_eixo(&self, i: usize) -> String {
+        let nomes: Vec<String> = self.civil_alinhamentos(i).into_iter().map(|a| a.nome.to_uppercase()).collect();
+        (1..).map(|k| format!("EIXO{k}")).find(|n| !nomes.contains(n)).unwrap()
+    }
+
+    /// `CREATEALIGNMENT`: alinhamento a partir de uma polilinha (retas e arcos), copiado da geometria dela.
+    pub(crate) fn civil_criar_alinhamento(&mut self, i: usize, nome: &str, fonte: document::Handle) -> Result<String, String> {
+        let nome = nome.trim();
+        if !crate::app::civil::nome_valido(nome) {
+            return Err(format!("Invalid alignment name '{nome}'."));
+        }
+        if self.civil_al_ler(i, nome).is_ok() {
+            return Err(format!("Alignment '{nome}' already exists."));
+        }
+        let e = self.tabs[i].scene.document.get_entity(fonte).ok_or("The polyline no longer exists.")?;
+        let (v, fechada) = vertices_com_bulge(e).ok_or("Select a polyline, 3D polyline or line.")?;
+        let mut a = AlinhamentoDwg::novo(nome, v, fechada);
+        a.geometria().ok_or("The polyline is too short for an alignment.")?;
+        // Superfície padrão: a única do desenho, se houver uma só.
+        if let [s] = self.civil_superficies(i).as_slice() {
+            a.superficie = s.clone();
+        }
+        self.push_undo_snapshot(i, "CREATEALIGNMENT");
+        self.civil_al_gravar(i, &a, true)?;
+        let msg = self.civil_redesenhar_alinhamento(i, nome)?;
+        Ok(format!("Alignment '{nome}' created. {msg}"))
+    }
+
+    /// `ALIGNMENTSTATIONS`: estaca inicial e intervalo dos rótulos.
+    pub(crate) fn civil_estacas(&mut self, i: usize, nome: &str, inicial: f64, intervalo: f64) -> Result<String, String> {
+        let mut a = self.civil_al_ler(i, nome)?;
+        if !(intervalo > 0.0) {
+            return Err("The station interval must be more than zero.".into());
+        }
+        self.push_undo_snapshot(i, "ALIGNMENTSTATIONS");
+        a.estaca_inicial = inicial;
+        a.intervalo = intervalo;
+        self.civil_al_gravar(i, &a, false)?;
+        self.civil_redesenhar_alinhamento(i, nome)
+    }
+
+    /// `CREATEPROFILEVIEW`: vista de perfil do terreno (e do greide, se houver) com o canto em `origem`.
+    pub(crate) fn civil_vista_perfil(&mut self, i: usize, nome: &str, superficie: &str, exagero: f64, origem: [f64; 2]) -> Result<String, String> {
+        let mut a = self.civil_al_ler(i, nome)?;
+        let s = self.civil_ler(i, superficie)?;
+        if !(exagero > 0.0) {
+            return Err("The vertical exaggeration must be more than zero.".into());
+        }
+        self.push_undo_snapshot(i, "CREATEPROFILEVIEW");
+        a.superficie = s.nome;
+        a.vista = Some(VistaPerfil { origem, exagero, base: 0.0 });
+        self.civil_al_gravar(i, &a, false)?;
+        self.civil_redesenhar_alinhamento(i, nome)
+    }
+
+    /// `CREATEPROFILE`: o greide (PIVs de estaca, cota e curva vertical).
+    pub(crate) fn civil_definir_greide(&mut self, i: usize, nome: &str, pivs: Vec<Piv>) -> Result<String, String> {
+        let mut a = self.civil_al_ler(i, nome)?;
+        let g = Greide::novo(pivs).ok_or("Type at least one PVI (station,elevation).")?;
+        self.push_undo_snapshot(i, "CREATEPROFILE");
+        a.pivs = g.pivs;
+        self.civil_al_gravar(i, &a, false)?;
+        let msg = self.civil_redesenhar_alinhamento(i, nome)?;
+        Ok(format!("Design profile of '{nome}': {} PVIs. {msg}", a.pivs.len()))
+    }
+
+    /// `CREATESECTIONS`: linhas de seção na planta a cada `intervalo` m e as vistas de seção em grade a partir de
+    /// `origem` (canto de cima à esquerda).
+    pub(crate) fn civil_definir_secoes(&mut self, i: usize, nome: &str, s: Secoes) -> Result<String, String> {
+        let mut a = self.civil_al_ler(i, nome)?;
+        if !(s.intervalo > 0.0 && s.esquerda >= 0.0 && s.direita >= 0.0 && s.esquerda + s.direita > 0.0) {
+            return Err("Interval and widths must be positive.".into());
+        }
+        if a.superficie.is_empty() {
+            return Err(format!("Alignment '{nome}' has no surface yet: create its profile view first, or name the surface."));
+        }
+        self.push_undo_snapshot(i, "CREATESECTIONS");
+        a.secoes = Some(s);
+        self.civil_al_gravar(i, &a, false)?;
+        self.civil_redesenhar_alinhamento(i, nome)
+    }
+
+    pub(crate) fn civil_apagar_alinhamento(&mut self, i: usize, nome: &str) -> Result<String, String> {
+        let a = self.civil_al_ler(i, nome)?;
+        self.push_undo_snapshot(i, "DELETEALIGNMENT");
+        let scene = &mut self.tabs[i].scene;
+        for (tipo, hs) in [("ALINHAMENTO", &a.desenho), ("PERFIL", &a.desenho_perfil), ("SECOES", &a.desenho_secoes)] {
+            scene.erase_entities(hs);
+            let b = bloco(tipo, &a.nome);
+            if scene.document.block_records.get(&b).is_some() {
+                crate::scene::block_service::erase(scene, &b);
+            }
+        }
+        let mut host = crate::app::plugin_host::HostSession::new(self, i);
+        host.delete_xrecord(&DICIONARIO, &a.nome)?;
+        self.tabs[i].dirty = true;
+        Ok(format!("Alignment '{}' deleted.", a.nome))
+    }
+
+    /// Troca um dos três desenhos do alinhamento pelo novo conteúdo; devolve os handles da inserção.
+    fn civil_al_trocar_desenho(&mut self, i: usize, tipo: &str, marca: &str, nome: &str, antigo: &[document::Handle], conteudo: Vec<EntityType>) -> Vec<document::Handle> {
+        let scene = &mut self.tabs[i].scene;
+        scene.erase_entities(antigo);
+        let b = bloco(tipo, nome);
+        if scene.document.block_records.get(&b).is_some() {
+            crate::scene::block_service::erase(scene, &b);
+        }
+        if conteudo.is_empty() {
+            return Vec::new();
+        }
+        for (camada, cor) in [CAMADA_EIXO, CAMADA_ESTACA, CAMADA_GRADE, CAMADA_TN, CAMADA_GREIDE, CAMADA_TEXTO, CAMADA_SECAO] {
+            if !scene.document.layers.contains(camada) && conteudo.iter().any(|e| e.common().layer == camada) {
+                scene.ensure_layer(camada);
+                if let Some(l) = scene.document.layers.get_mut(camada) {
+                    l.color = document::Color::Index(cor as u8);
+                }
+            }
+        }
+        scene.define_block_raw(&b, Vector3::new(0.0, 0.0, 0.0), conteudo);
+        let camada = match tipo {
+            "ALINHAMENTO" => CAMADA_EIXO.0,
+            "PERFIL" => CAMADA_GRADE.0,
+            _ => CAMADA_SECAO.0,
+        };
+        scene.ensure_layer(camada);
+        let mut ins = document::entities::Insert::new(b, Vector3::new(0.0, 0.0, 0.0));
+        ins.common.layer = camada.into();
+        let mut e = EntityType::Insert(ins);
+        marcar(&mut e, &format!("{marca}:{nome}"));
+        scene.add_entities(vec![e])
+    }
+
+    /// Redesenha tudo do alinhamento: planta, vista de perfil (se houver) e seções (se houver).
+    pub(crate) fn civil_redesenhar_alinhamento(&mut self, i: usize, nome: &str) -> Result<String, String> {
+        let mut a = self.civil_al_ler(i, nome)?;
+        let al = a.geometria().ok_or("Alignment without geometry.")?;
+        let mut msgs = vec![format!("Length {:.3} m, stations {} to {}.", al.comprimento(), texto_da_estaca(al.estaca_inicial), texto_da_estaca(al.estaca_final()))];
+        let planta = desenho_da_planta(&al, a.intervalo);
+        a.desenho = self.civil_al_trocar_desenho(i, "ALINHAMENTO", "ALIGNMENT", &a.nome.clone(), &a.desenho.clone(), planta);
+        let greide = a.greide();
+        let tin = if a.superficie.is_empty() { None } else { Some(self.civil_tin(i, &a.superficie.clone())) };
+        if let Some(v) = a.vista.clone() {
+            match &tin {
+                Some(Ok(t)) => {
+                    let (ents, resumo, base) = desenho_do_perfil(t, &al, greide.as_ref(), a.intervalo, &v, &a.nome, &a.superficie);
+                    if let Some(vv) = a.vista.as_mut() {
+                        vv.base = base;
+                    }
+                    a.desenho_perfil = self.civil_al_trocar_desenho(i, "PERFIL", "PROFILEVIEW", &a.nome.clone(), &a.desenho_perfil.clone(), ents);
+                    msgs.push(resumo);
+                }
+                Some(Err(e)) => msgs.push(format!("Profile view not drawn: {e}")),
+                None => {}
+            }
+        }
+        if let Some(s) = a.secoes.clone() {
+            match &tin {
+                Some(Ok(t)) => {
+                    let (ents, n) = desenho_das_secoes(t, &al, greide.as_ref(), &s);
+                    a.desenho_secoes = self.civil_al_trocar_desenho(i, "SECOES", "SECTIONS", &a.nome.clone(), &a.desenho_secoes.clone(), ents);
+                    msgs.push(format!("{n} cross sections."));
+                }
+                Some(Err(e)) => msgs.push(format!("Sections not drawn: {e}")),
+                None => {}
+            }
+        }
+        self.civil_al_gravar(i, &a, false)?;
+        Ok(msgs.join(" "))
+    }
+
+    /// Depois de montar a superfície: redesenha perfis e seções dos alinhamentos que usam ela.
+    pub(crate) fn civil_alinhamentos_da_superficie(&mut self, i: usize, superficie: &str) -> Vec<String> {
+        let nomes: Vec<String> = self
+            .civil_alinhamentos(i)
+            .into_iter()
+            .filter(|a| a.superficie.eq_ignore_ascii_case(superficie) && (a.vista.is_some() || a.secoes.is_some()))
+            .map(|a| a.nome)
+            .collect();
+        nomes.into_iter().filter_map(|n| self.civil_redesenhar_alinhamento(i, &n).ok().map(|m| format!("Alignment '{n}' updated: {m}"))).collect()
+    }
+}
+
+/// Planta: eixo, marcas de estaca (a cada intervalo; a cada 5 intervalos maior) e rótulos.
+fn desenho_da_planta(al: &Alinhamento, intervalo: f64) -> Vec<EntityType> {
+    let mut v = Vec::new();
+    // Eixo: amostrado (arcos viram muitos trechos curtos).
+    let l = al.comprimento();
+    let n = ((l / 0.5).ceil() as usize).clamp(2, 200_000);
+    let pts: Vec<[f64; 2]> = (0..=n).map(|k| al.ponto_na_estaca(al.estaca_inicial + l * k as f64 / n as f64).0).collect();
+    v.extend(polilinha(&pts, CAMADA_EIXO));
+    let alt = (intervalo / 8.0).clamp(0.5, 5.0);
+    for e in al.estacas(intervalo) {
+        let maior = (e / (intervalo * 5.0)).fract().abs() < 1e-9 || (e - al.estaca_inicial).abs() < 1e-9 || (e - al.estaca_final()).abs() < 1e-9;
+        let m = if maior { alt * 1.6 } else { alt };
+        let a = al.ponto_com_offset(e, -m);
+        let b = al.ponto_com_offset(e, m);
+        v.push(linha(a, b, CAMADA_ESTACA));
+        let (_, dir) = al.ponto_na_estaca(e);
+        let p = al.ponto_com_offset(e, -m - alt * 1.2);
+        // Rótulo perpendicular ao eixo, lendo da esquerda.
+        v.push(texto(texto_da_estaca(e), p, alt * 0.8, dir + std::f64::consts::FRAC_PI_2, true, CAMADA_ESTACA));
+    }
+    v
+}
+
+/// Vista de perfil: grade, terreno, greide e a faixa embaixo com estaca, cota do terreno, cota do greide e a
+/// diferença (aterro positivo, corte negativo), como nos perfis de projeto.
+fn desenho_do_perfil(
+    tin: &Tin,
+    al: &Alinhamento,
+    greide: Option<&Greide>,
+    intervalo: f64,
+    v: &VistaPerfil,
+    nome: &str,
+    superficie: &str,
+) -> (Vec<EntityType>, String, f64) {
+    let mut out = Vec::new();
+    let estacas = al.estacas(intervalo);
+    let tn = perfil_do_terreno(tin, al, (intervalo / 10.0).max(0.5), &estacas);
+    if tn.is_empty() {
+        return (out, format!("The alignment does not cross surface '{superficie}': no terrain profile."), v.base);
+    }
+    let gz = |e: f64| greide.map(|g| g.cota(e));
+    let mut zmin = tn.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+    let mut zmax = tn.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+    if let Some(g) = greide {
+        for e in &estacas {
+            zmin = zmin.min(g.cota(*e));
+            zmax = zmax.max(g.cota(*e));
+        }
+    }
+    let dz = passo_redondo((zmax - zmin).max(1.0), 8.0);
+    let base = (zmin / dz).floor() * dz - dz;
+    let topo = (zmax / dz).ceil() * dz + dz;
+    let (x0, y0, ex) = (v.origem[0], v.origem[1], v.exagero);
+    let px = |e: f64| x0 + (e - al.estaca_inicial);
+    let py = |z: f64| y0 + (z - base) * ex;
+    let largura = al.comprimento();
+    let alt = (intervalo / 8.0).clamp(0.5, 5.0);
+    // Grade.
+    let mut z = base;
+    while z <= topo + 1e-9 {
+        out.push(linha([x0, py(z)], [x0 + largura, py(z)], CAMADA_GRADE));
+        out.push(texto(format!("{z:.2}"), [x0 - alt * 0.5, py(z)], alt * 0.7, 0.0, false, CAMADA_TEXTO));
+        if let EntityType::Text(t) = out.last_mut().unwrap() {
+            t.horizontal_alignment = TextHorizontalAlignment::Right;
+            t.vertical_alignment = TextVerticalAlignment::Middle;
+            t.alignment_point = Some(t.insertion_point);
+        }
+        z += dz;
+    }
+    for e in &estacas {
+        out.push(linha([px(*e), py(base)], [px(*e), py(topo)], CAMADA_GRADE));
+    }
+    // Terreno e greide.
+    out.extend(polilinha(&tn.iter().map(|(e, z)| [px(*e), py(*z)]).collect::<Vec<_>>(), CAMADA_TN));
+    if let Some(g) = greide {
+        let n = ((largura / 0.5).ceil() as usize).clamp(2, 200_000);
+        let pts: Vec<[f64; 2]> = (0..=n)
+            .map(|k| {
+                let e = al.estaca_inicial + largura * k as f64 / n as f64;
+                [px(e), py(g.cota(e))]
+            })
+            .collect();
+        out.extend(polilinha(&pts, CAMADA_GREIDE));
+        for p in &g.pivs {
+            if p.estaca >= al.estaca_inicial - 1e-9 && p.estaca <= al.estaca_final() + 1e-9 {
+                let c = [px(p.estaca), py(p.cota)];
+                out.push(linha([c[0] - alt * 0.4, c[1] - alt * 0.4], [c[0] + alt * 0.4, c[1] + alt * 0.4], CAMADA_GREIDE));
+                out.push(linha([c[0] - alt * 0.4, c[1] + alt * 0.4], [c[0] + alt * 0.4, c[1] - alt * 0.4], CAMADA_GREIDE));
+                out.push(texto(format!("PIV {} / {:.3}", texto_da_estaca(p.estaca), p.cota), [c[0], c[1] + alt * 1.2], alt * 0.6, 0.0, true, CAMADA_GREIDE));
+            }
+        }
+    }
+    // Faixa de cotas embaixo: quatro linhas de texto por estaca.
+    let linhas_faixa = ["Station", "Terrain", "Design", "Fill(+)/Cut(-)"];
+    let h = alt * 1.6;
+    for (k, r) in linhas_faixa.iter().enumerate() {
+        let y = y0 - h * (k as f64 + 0.5);
+        out.push(texto(r.to_string(), [x0 - alt * 0.5, y], alt * 0.6, 0.0, false, CAMADA_TEXTO));
+        if let EntityType::Text(t) = out.last_mut().unwrap() {
+            t.horizontal_alignment = TextHorizontalAlignment::Right;
+            t.vertical_alignment = TextVerticalAlignment::Middle;
+            t.alignment_point = Some(t.insertion_point);
+        }
+        out.push(linha([x0, y0 - h * (k as f64 + 1.0)], [x0 + largura, y0 - h * (k as f64 + 1.0)], CAMADA_GRADE));
+    }
+    for e in &estacas {
+        let x = px(*e);
+        let zt = tin.cota_em(al.ponto_na_estaca(*e).0[0], al.ponto_na_estaca(*e).0[1]);
+        let col = [
+            texto_da_estaca(*e),
+            zt.map_or("-".into(), |z| format!("{z:.3}")),
+            gz(*e).map_or("-".into(), |z| format!("{z:.3}")),
+            match (zt, gz(*e)) {
+                (Some(t), Some(g)) => format!("{:+.3}", g - t),
+                _ => "-".into(),
+            },
+        ];
+        for (k, c) in col.into_iter().enumerate() {
+            out.push(texto(c, [x, y0 - h * (k as f64 + 0.5)], alt * 0.5, std::f64::consts::FRAC_PI_2, true, CAMADA_TEXTO));
+        }
+    }
+    out.push(texto(
+        format!("Profile {nome}  (surface {superficie}, V {ex}x)"),
+        [x0 + largura / 2.0, py(topo) + alt * 1.5],
+        alt,
+        0.0,
+        true,
+        CAMADA_TEXTO,
+    ));
+    (out, format!("Profile view: elevations {zmin:.2} to {zmax:.2}, {} stations.", estacas.len()), base)
+}
+
+/// Linhas de seção na planta e as vistas de seção (escala 1:1), em grade.
+fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &Secoes) -> (Vec<EntityType>, usize) {
+    let mut out = Vec::new();
+    let estacas = al.estacas(s.intervalo);
+    let alt = (s.intervalo / 8.0).clamp(0.5, 5.0);
+    let largura = s.esquerda + s.direita;
+    let passo = (largura / 200.0).max(0.25);
+    let secoes: Vec<(f64, Vec<(f64, f64)>)> =
+        estacas.iter().map(|e| (*e, secao_do_terreno(tin, al, *e, s.esquerda, s.direita, passo))).collect();
+    // Altura de cada vista: a maior faixa de cotas entre as seções, para a grade ficar alinhada.
+    let mut faixa: f64 = 2.0;
+    for (e, sec) in &secoes {
+        let mut lo = sec.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+        let mut hi = sec.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+        if let Some(g) = greide {
+            lo = lo.min(g.cota(*e));
+            hi = hi.max(g.cota(*e));
+        }
+        if lo.is_finite() {
+            faixa = faixa.max(hi - lo);
+        }
+    }
+    let dz = passo_redondo(faixa, 4.0);
+    let altura = (faixa / dz).ceil() * dz + 2.0 * dz;
+    let (cw, ch) = (largura + alt * 8.0, altura + alt * 6.0);
+    let colunas = s.colunas.max(1);
+    let mut feitas = 0;
+    for (k, (e, sec)) in secoes.iter().enumerate() {
+        // Linha de seção na planta.
+        let a = al.ponto_com_offset(*e, -s.esquerda);
+        let b = al.ponto_com_offset(*e, s.direita);
+        out.push(linha(a, b, CAMADA_SECAO));
+        if sec.len() < 2 {
+            continue;
+        }
+        feitas += 1;
+        let (col, lin) = (k % colunas, k / colunas);
+        let x0 = s.origem[0] + col as f64 * cw + alt * 6.0;
+        let y_topo = s.origem[1] - lin as f64 * ch - alt * 3.0;
+        let lo = sec.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+        let lo = greide.map_or(lo, |g| lo.min(g.cota(*e)));
+        let base = (lo / dz).floor() * dz - dz;
+        let y0 = y_topo - altura;
+        let px = |o: f64| x0 + (o + s.esquerda);
+        let py = |z: f64| y0 + (z - base);
+        // Grade: cotas a cada dz e afastamentos a cada 5 ou 10 m.
+        let mut z = base;
+        while z <= base + altura + 1e-9 {
+            out.push(linha([x0, py(z)], [x0 + largura, py(z)], CAMADA_GRADE));
+            out.push(texto(format!("{z:.1}"), [x0 - alt * 0.3, py(z)], alt * 0.5, 0.0, false, CAMADA_TEXTO));
+            if let EntityType::Text(t) = out.last_mut().unwrap() {
+                t.horizontal_alignment = TextHorizontalAlignment::Right;
+                t.vertical_alignment = TextVerticalAlignment::Middle;
+                t.alignment_point = Some(t.insertion_point);
+            }
+            z += dz;
+        }
+        let dof = passo_redondo(largura, 6.0);
+        let mut o = -(s.esquerda / dof).floor() * dof;
+        while o <= s.direita + 1e-9 {
+            out.push(linha([px(o), py(base)], [px(o), py(base + altura)], CAMADA_GRADE));
+            out.push(texto(format!("{o:.0}"), [px(o), py(base) - alt * 0.6], alt * 0.5, 0.0, true, CAMADA_TEXTO));
+            o += dof;
+        }
+        // Eixo, terreno e o ponto do greide.
+        out.push(linha([px(0.0), py(base)], [px(0.0), py(base + altura)], CAMADA_EIXO));
+        out.extend(polilinha(&sec.iter().map(|(o, z)| [px(*o), py(*z)]).collect::<Vec<_>>(), CAMADA_TN));
+        if let Some(g) = greide {
+            let zg = g.cota(*e);
+            let c = [px(0.0), py(zg)];
+            out.push(linha([c[0] - alt, c[1]], [c[0] + alt, c[1]], CAMADA_GREIDE));
+            out.push(texto(format!("{zg:.3}"), [c[0], c[1] + alt * 0.6], alt * 0.5, 0.0, true, CAMADA_GREIDE));
+        }
+        let zt = tin.cota_em(al.ponto_na_estaca(*e).0[0], al.ponto_na_estaca(*e).0[1]);
+        let titulo = match zt {
+            Some(z) => format!("{}  TN {:.3}", texto_da_estaca(*e), z),
+            None => texto_da_estaca(*e),
+        };
+        out.push(texto(titulo, [x0 + largura / 2.0, y_topo + alt * 1.2], alt * 0.8, 0.0, true, CAMADA_TEXTO));
+    }
+    (out, feitas)
+}

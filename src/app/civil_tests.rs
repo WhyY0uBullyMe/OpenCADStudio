@@ -252,3 +252,80 @@ fn landxml_ida_e_volta_mantem_pontos_triangulos_e_cotas() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Superfície plana z = 100 + 0,05·x num quadrado de 200 m, de arquivo de pontos.
+fn plano(app: &mut OpenCADStudio, dir: &std::path::Path) {
+    let arq = dir.join("plano.txt");
+    let mut t = String::new();
+    let mut n = 1;
+    for x in (0..=200).step_by(20) {
+        for y in (0..=200).step_by(20) {
+            t.push_str(&format!("{n},{y},{x},{:.3},TN\n", 100.0 + 0.05 * x as f64));
+            n += 1;
+        }
+    }
+    std::fs::write(&arq, t).unwrap();
+    command(app, "CREATESURFACE TN");
+    command(app, &format!("ADDSURFACEPOINTFILE TN \"{}\" PNEZD", arq.display()));
+}
+
+fn textos_do_bloco(app: &OpenCADStudio, bloco: &str) -> Vec<String> {
+    let doc = &app.tabs[app.active_tab].scene.document;
+    let rec = doc.block_records.get(bloco).expect("bloco desenhado");
+    rec.entity_handles.iter().filter_map(|h| doc.get_entity(*h)).filter_map(|e| match e {
+        EntityType::Text(t) => Some(t.value.clone()),
+        _ => None,
+    }).collect()
+}
+
+#[test]
+fn alinhamento_perfil_greide_e_secoes() {
+    let dir = std::env::temp_dir().join(format!("agral_alin_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    plano(&mut app, &dir);
+    // Eixo de (20,100) a (180,100): 160 m para leste.
+    app.tabs[i].scene.ensure_layer("EIXO");
+    let mut p = LwPolyline::new();
+    p.vertices = vec![LwVertex::new(Vector2::new(20.0, 100.0)), LwVertex::new(Vector2::new(180.0, 100.0))];
+    p.common.layer = "EIXO".into();
+    app.tabs[i].scene.add_entities(vec![EntityType::LwPolyline(p)]);
+    command(&mut app, "CREATEALIGNMENT EIXO1 EIXO");
+    let a = app.civil_al_ler(i, "EIXO1").expect("alinhamento gravado");
+    assert_eq!(a.superficie, "TN", "a única superfície vira a do alinhamento");
+    let al = a.geometria().unwrap();
+    assert!((al.comprimento() - 160.0).abs() < 1e-9);
+    let rot = textos_do_bloco(&app, "AGRAL_ALINHAMENTO_EIXO1");
+    for e in ["0+000.00", "0+020.00", "0+160.00"] {
+        assert!(rot.iter().any(|t| t == e), "rótulo {e} em {rot:?}");
+    }
+    // Vista de perfil: faixa com a cota do terreno 101 + 0,05·estaca.
+    command(&mut app, "CREATEPROFILEVIEW EIXO1 TN 10 0,-200");
+    let faixa = textos_do_bloco(&app, "AGRAL_PERFIL_EIXO1");
+    for (e, z) in [(0.0, 101.0), (80.0, 105.0), (160.0, 109.0)] {
+        let _ = e;
+        assert!(faixa.iter().any(|t| t == &format!("{z:.3}")), "cota {z:.3} na faixa");
+    }
+    // Greide horizontal a 106 m: aterro na estaca 0 (+5) e corte na 160 (-3).
+    command(&mut app, "CREATEPROFILE EIXO1 0,106 160,106");
+    let faixa = textos_do_bloco(&app, "AGRAL_PERFIL_EIXO1");
+    assert!(faixa.iter().any(|t| t == "+5.000"), "aterro de 5 m na estaca 0: {faixa:?}");
+    assert!(faixa.iter().any(|t| t == "-3.000"), "corte de 3 m na estaca 160");
+    assert_eq!(app.civil_al_ler(i, "EIXO1").unwrap().pivs.len(), 2);
+    // Seções a cada 40 m, 30 m para cada lado.
+    command(&mut app, "CREATESECTIONS EIXO1 40 30 30 3 400,0");
+    let sec = textos_do_bloco(&app, "AGRAL_SECOES_EIXO1");
+    assert!(sec.iter().any(|t| t == "0+080.00  TN 105.000"), "título da seção 80 com a cota do terreno: {sec:?}");
+    assert!(sec.iter().any(|t| t == "106.000"), "cota do greide na seção");
+    // A superfície muda (sobe 2 m): perfil e seções acompanham.
+    command(&mut app, "_SURFACEEDIT TN EDIT_RAISELOWER 2");
+    let faixa = textos_do_bloco(&app, "AGRAL_PERFIL_EIXO1");
+    assert!(faixa.iter().any(|t| t == "103.000"), "perfil refeito com a superfície nova: {faixa:?}");
+    // Desfazer e apagar.
+    command(&mut app, "DELETEALIGNMENT EIXO1");
+    assert!(app.civil_al_ler(i, "EIXO1").is_err());
+    assert!(app.tabs[i].scene.document.block_records.get("AGRAL_PERFIL_EIXO1").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}

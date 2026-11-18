@@ -110,6 +110,7 @@ mod quick_calc;
 mod recent;
 mod record_api;
 pub(crate) mod civil;
+pub(crate) mod civil_alinhamento;
 mod rename_dialog;
 mod saved_filters;
 pub(crate) mod settings;

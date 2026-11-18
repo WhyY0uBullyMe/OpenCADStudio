@@ -122,6 +122,9 @@ impl OpenCADStudio {
         let (verbo, resto) = cmd.split_once(char::is_whitespace).unwrap_or((cmd, ""));
         let verbo = verbo.to_ascii_uppercase();
         let args: Vec<&str> = argumentos(resto);
+        if let Some(t) = self.dispatch_alinhamento(&verbo, &args, i) {
+            return Some(t);
+        }
         match verbo.as_str() {
             "TOOLSPACE" => {
                 self.show_toolspace ^= true;

@@ -747,6 +747,10 @@ impl OpenCADStudio {
         for a in &avisos {
             msg.push_str(&format!(" WARNING: {a}"));
         }
+        // Perfis e seções dos alinhamentos que usam esta superfície acompanham a superfície nova.
+        for m in self.civil_alinhamentos_da_superficie(i, &s.nome) {
+            msg.push_str(&format!(" {m}"));
+        }
         Ok(msg)
     }
 }
@@ -791,7 +795,7 @@ fn desenho_do_estilo(tin: &Tin, estilo: &crate::civil::estilos::Estilo, nome: &s
     v
 }
 
-fn marcar(e: &mut EntityType, valor: &str) {
+pub(crate) fn marcar(e: &mut EntityType, valor: &str) {
     let mut r = ExtendedDataRecord::new(APP);
     r.add_value(XDataValue::String(valor.to_string()));
     e.common_mut().extended_data.add_record(r);

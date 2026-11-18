@@ -31,6 +31,7 @@ pub(crate) use purge::purge_pass;
 mod block_editor_vars;
 mod bvisibility;
 mod count;
+mod alignment;
 mod surface;
 mod dash;
 mod dgn_import;
@@ -1041,6 +1042,18 @@ inventory::submit!(crate::command::CommandRegistration {
         "ADDSURFACEBREAKLINES",
         "ADDSURFACEPOINTFILE",
         "IMPORTLANDXMLSURFACE",
+        "CREATEALIGNMENT",
+        "ALIGNMENTSTATIONS",
+        "-ALIGNMENTSTATIONS",
+        "CREATEPROFILEVIEW",
+        "-CREATEPROFILEVIEW",
+        "CREATEPROFILE",
+        "CREATESECTIONS",
+        "-CREATESECTIONS",
+        "CREATESAMPLELINES",
+        "CREATESECTIONVIEWS",
+        "REBUILDALIGNMENT",
+        "DELETEALIGNMENT",
         "EXPORTLANDXMLSURFACE",
         "-SURFACEPROPERTIES",
         "ADDSURFACECONTOURS",
