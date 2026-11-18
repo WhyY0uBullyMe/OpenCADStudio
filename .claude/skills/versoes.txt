@@ -1,0 +1,10 @@
+obra_superpowers 22f0b46
+DietrichGebert_ponytail 96608e0
+nextlevelbuilder_ui-ux-pro-max-skill 4f2dbb6
+trailofbits_skills e4dd0bb
+garrytan_gstack f75ce6f
+github_spec-kit 6442d36
+eyaltoledano_claude-task-master c0c98d3
+oraios_serena 6e5c377
+Egonex-AI_Understand-Anything 182c7fb
+usestrix_strix 215482e
