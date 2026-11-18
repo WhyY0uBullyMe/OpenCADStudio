@@ -517,29 +517,6 @@ impl OpenCADStudio {
                 );
                 self.civil_instalar(i, Box::new(c));
             }
-            "-CREATEPROFILEVIEW" | "-CREATESECTIONS" | "-ALIGNMENTSTATIONS" => {
-                use crate::modules::civil::perguntas::PerguntasCommand;
-                let c = match verbo {
-                    "-CREATEPROFILEVIEW" => PerguntasCommand::new(
-                        "-CREATEPROFILEVIEW",
-                        "CREATEPROFILEVIEW",
-                        &["Alignment name:", "Surface name:", "Vertical exaggeration <10>:"],
-                    ),
-                    "-CREATESECTIONS" => PerguntasCommand::new(
-                        "-CREATESECTIONS",
-                        "CREATESECTIONS",
-                        &["Alignment name:", "Interval (m) <20>:", "Left width (m) <30>:", "Right width (m) <30>:", "Columns <5>:"],
-                    ),
-                    _ => PerguntasCommand::new(
-                        "-ALIGNMENTSTATIONS",
-                        "ALIGNMENTSTATIONS",
-                        &["Alignment name:", "Start station (m) <0>:", "Station label interval (m) <20>:"],
-                    ),
-                };
-                use crate::command::CadCommand;
-                self.command_line.push_info(&c.prompt());
-                self.tabs[i].active_cmd = Some(Box::new(c));
-            }
             _ => return None,
         }
         Some(Task::none())

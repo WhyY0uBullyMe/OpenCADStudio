@@ -17,6 +17,53 @@ pub enum Modo {
     Limite(String),
     /// Raise/Lower Surface: quanto sobe (negativo desce).
     Elevar(String),
+    /// Agral CAD (JP, 18/11: "botões e janelas para fazer as configurações"): formulário de um comando, campo a
+    /// campo na ordem dos argumentos; OK despacha o comando (e pede o ponto no desenho, se ele precisar).
+    Formulario(Formulario),
+}
+
+/// Um campo do formulário: texto livre ou lista de opções.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Campo {
+    pub rotulo: String,
+    pub valor: String,
+    /// Vazio: campo de texto. Com opções: lista para escolher.
+    pub opcoes: Vec<String>,
+}
+
+impl Campo {
+    pub fn texto(rotulo: &str, valor: impl ToString) -> Self {
+        Campo { rotulo: rotulo.into(), valor: valor.to_string(), opcoes: Vec::new() }
+    }
+    pub fn lista(rotulo: &str, valor: impl ToString, opcoes: Vec<String>) -> Self {
+        Campo { rotulo: rotulo.into(), valor: valor.to_string(), opcoes }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Formulario {
+    pub titulo: String,
+    /// Comando despachado no OK: `<verbo> <campo1> <campo2> ...`.
+    pub verbo: String,
+    pub campos: Vec<Campo>,
+    /// Texto da pergunta do ponto no desenho, depois do OK (canto de uma vista, por exemplo).
+    pub ponto: Option<String>,
+    pub nota: String,
+}
+
+impl Formulario {
+    /// O comando com os valores (entre aspas se tiverem espaço); `Err` se faltar algum.
+    pub fn comando(&self) -> Result<String, String> {
+        let mut partes = vec![self.verbo.clone()];
+        for c in &self.campos {
+            let v = c.valor.trim();
+            if v.is_empty() {
+                return Err(format!("Fill in '{}'.", c.rotulo));
+            }
+            partes.push(if v.contains(' ') { format!("\"{v}\"") } else { v.to_string() });
+        }
+        Ok(partes.join(" "))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +78,8 @@ pub enum CivilMsg {
     LimitarBorda(bool),
     Comprimento(String),
     TipoLimite(String),
+    /// Valor do campo `n` do formulário.
+    Campo(usize, String),
     Ok,
 }
 
@@ -77,6 +126,7 @@ impl State {
             Modo::Apagar(_) => "Delete Surface".into(),
             Modo::Limite(n) => format!("Add Boundaries - {n}"),
             Modo::Elevar(n) => format!("Raise/Lower Surface - {n}"),
+            Modo::Formulario(f) => f.titulo.clone(),
         }
     }
 }
@@ -175,6 +225,35 @@ pub(crate) fn view(state: &State, sizing: crate::ui::modal::ModalSizing) -> Elem
             corpo = corpo
                 .push(campo("Amount to add (m)", &state.comprimento, CivilMsg::Comprimento))
                 .push(text("Positive raises the surface, negative lowers it. It goes into Definition > Edits.").size(12));
+        }
+        Modo::Formulario(f) => {
+            for (k, c) in f.campos.iter().enumerate() {
+                let entrada: Element<'_, Message> = if c.opcoes.is_empty() {
+                    text_input("", &c.valor)
+                        .on_input(move |v| m(CivilMsg::Campo(k, v)))
+                        .on_submit(m(CivilMsg::Ok))
+                        .style(field_style)
+                        .size(12)
+                        .width(Fill)
+                        .into()
+                } else {
+                    let sel = c.opcoes.iter().find(|o| o.eq_ignore_ascii_case(&c.valor)).cloned();
+                    pick_list(sel, c.opcoes.clone(), |s: &String| s.clone())
+                        .on_select(move |v| m(CivilMsg::Campo(k, v)))
+                        .text_size(12)
+                        .width(Fill)
+                        .into()
+                };
+                corpo = corpo.push(
+                    row![text(c.rotulo.clone()).size(12).width(Length::Fixed(230.0)), entrada].spacing(8).align_y(iced::Center),
+                );
+            }
+            if !f.nota.is_empty() {
+                corpo = corpo.push(text(f.nota.clone()).size(12));
+            }
+            if let Some(p) = &f.ponto {
+                corpo = corpo.push(text(format!("After OK: {}", p.trim_end_matches(':').to_lowercase())).size(12));
+            }
         }
         Modo::Apagar(n) => {
             corpo = corpo

@@ -57,3 +57,13 @@ impl CadCommand for PegarPontoCommand {
         }
     }
 }
+
+/// Nome do comando (estático) para a linha de comando, a partir do verbo do formulário.
+pub fn nome_estatico(verbo: &str) -> &'static str {
+    match verbo {
+        "CREATESECTIONS" => "CREATESECTIONS",
+        "CREATEPROFILEVIEW" => "CREATEPROFILEVIEW",
+        "CREATEVOLUMETABLE" => "CREATEVOLUMETABLE",
+        _ => "AGRAL",
+    }
+}

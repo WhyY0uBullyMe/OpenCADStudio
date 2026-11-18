@@ -45,6 +45,11 @@ Referência para trocar de agente (Claude Code, Codex ou outro) sem perder o que
     desenho. Botão novo na barra de título ("Stack"): empilha o painel com o fixo do lado (os dois dividem a altura,
     com divisor arrastável) e, de novo, desempilha. Três testes do programa base esperavam o pino da borda inteira e
     foram atualizados para a regra nova.
+  - Feito (janelas): como no AutoCAD, o comando sozinho (botão da faixa ou menu do Toolspace) abre uma janela já
+    preenchida com o que o eixo ou a superfície têm, e o "-COMANDO" continua perguntando na linha de comando (roteiros
+    e MCP). Janelas: Compute Materials, Create Sample Lines and Section Views, Create Profile View, Dam Assembly,
+    Create Corridor, Alignment Stations e Extract Objects. Campo vazio avisa e não fecha; quando o comando precisa de
+    um ponto (canto da vista), ele é pedido no desenho depois do OK.
 
 ### 18/11/2026 (Agral CAD, com o Claude)
 - **Retorno do JP sobre o teste no Windows:** "abre normal", mas "tá muito mal estruturado": foi feito um plugin no

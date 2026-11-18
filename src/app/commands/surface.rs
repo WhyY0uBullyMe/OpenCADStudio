@@ -42,7 +42,7 @@ impl OpenCADStudio {
         }
     }
 
-    fn civil_abrir(&mut self, st: State) {
+    pub(super) fn civil_abrir(&mut self, st: State) {
         self.civil_dialog = Some(st);
         self.active_modal = Some(crate::app::ModalKind::Civil);
         self.reset_modal_geometry();
@@ -123,6 +123,17 @@ impl OpenCADStudio {
         let (verbo, resto) = cmd.split_once(char::is_whitespace).unwrap_or((cmd, ""));
         let verbo = verbo.to_ascii_uppercase();
         let args: Vec<&str> = argumentos(resto);
+        // Agral CAD: como no AutoCAD, o comando sozinho abre a janela e o "-COMANDO" pergunta na linha de comando.
+        let (verbo, linha) = match verbo.strip_prefix('-') {
+            Some(v) if crate::app::civil_formularios::FORMULARIOS.contains(&v) => (v.to_string(), true),
+            _ => (verbo, false),
+        };
+        if !linha && args.len() <= 1 && crate::app::civil_formularios::FORMULARIOS.contains(&verbo.as_str()) {
+            if let Some(f) = self.civil_formulario(i, &verbo, args.first().copied()) {
+                self.civil_abrir(State::novo(Modo::Formulario(f)));
+                return Some(Task::none());
+            }
+        }
         if let Some(t) = self.dispatch_alinhamento(&verbo, &args, i) {
             return Some(t);
         }
@@ -546,11 +557,42 @@ impl OpenCADStudio {
             CivilMsg::LimitarBorda(v) => st.limitar_borda = v,
             CivilMsg::Comprimento(v) => st.comprimento = v,
             CivilMsg::TipoLimite(v) => st.tipo_limite = Some(v),
+            CivilMsg::Campo(k, v) => {
+                if let Modo::Formulario(f) = &mut st.modo {
+                    if let Some(c) = f.campos.get_mut(k) {
+                        c.valor = v;
+                    }
+                }
+                st.erro = None;
+            }
             CivilMsg::Ok => {
                 let modo = st.modo.clone();
                 let (nome, descricao) = (st.nome.clone(), st.descricao.clone());
                 let estilo = st.estilo.clone().unwrap_or_default();
+                if let Modo::Formulario(f) = &modo {
+                    match f.comando() {
+                        Ok(cmd) => {
+                            self.close_active_modal();
+                            if let Some(p) = &f.ponto {
+                                use crate::command::CadCommand;
+                                let nome = crate::modules::civil::pegar_ponto::nome_estatico(&f.verbo);
+                                let c = crate::modules::civil::pegar_ponto::PegarPontoCommand::new(nome, p, cmd, false);
+                                self.command_line.push_info(&c.prompt());
+                                self.tabs[i].active_cmd = Some(Box::new(c));
+                                return Task::none();
+                            }
+                            return self.dispatch_command(&cmd);
+                        }
+                        Err(e) => {
+                            if let Some(st) = self.civil_dialog.as_mut() {
+                                st.erro = Some(e);
+                            }
+                            return Task::none();
+                        }
+                    }
+                }
                 let r: Result<Option<String>, String> = match &modo {
+                    Modo::Formulario(_) => Ok(None),
                     Modo::Criar => self.civil_criar(i, &nome, &descricao, &estilo).map(Some),
                     Modo::Apagar(n) => self.civil_apagar(i, n).map(Some),
                     Modo::Propriedades(n) => {

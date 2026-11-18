@@ -359,7 +359,7 @@ fn alinhamento_perfil_e_secoes_pela_linha_de_comando() {
     }
     assert!(app.civil_al_ler(i, "EIXO1").is_ok(), "eixo criado pela linha de comando");
     // Vista de perfil: alinhamento e superfície padrão, exagero 5, canto digitado.
-    for t in ["CREATEPROFILEVIEW", "", "", "5", "0,-300"] {
+    for t in ["-CREATEPROFILEVIEW", "", "", "5", "0,-300"] {
         digitar(&mut app, t);
     }
     let a = app.civil_al_ler(i, "EIXO1").unwrap();
@@ -371,7 +371,7 @@ fn alinhamento_perfil_e_secoes_pela_linha_de_comando() {
     }
     assert_eq!(app.civil_al_ler(i, "EIXO1").unwrap().pivs.len(), 2);
     // Seções com os padrões e o canto digitado.
-    for t in ["CREATESECTIONS", "", "40", "", "", "", "400,0"] {
+    for t in ["-CREATESECTIONS", "", "40", "", "", "", "400,0"] {
         digitar(&mut app, t);
     }
     let s = app.civil_al_ler(i, "EIXO1").unwrap().secoes.expect("seções");
@@ -487,7 +487,7 @@ fn extrair_objetos_pergunta_o_tipo() {
     assert!(m0 > 0 && n0 > 0, "o estilo desenha as duas: {m0} {n0}");
 
     // Sem nada: pergunta a superfície (padrão EG) e o tipo.
-    command(&mut app, "EXTRACTSURFACEOBJECTS");
+    command(&mut app, "-EXTRACTSURFACEOBJECTS");
     assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("<EG>"));
     digitar(&mut app, "");
     assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("[All/MAjor/MInor"));
@@ -497,13 +497,13 @@ fn extrair_objetos_pergunta_o_tipo() {
     assert_eq!(conta(&app, CAMADA_INTERMEDIARIA.0), n0);
 
     // Com a superfície: só o tipo; "MI" = intermediárias.
-    command(&mut app, "EXTRACTSURFACEOBJECTS EG");
+    command(&mut app, "-EXTRACTSURFACEOBJECTS EG");
     digitar(&mut app, "MI");
     assert_eq!(conta(&app, CAMADA_INTERMEDIARIA.0), 2 * n0, "só as intermediárias");
     assert_eq!(conta(&app, CAMADA_MESTRA.0), 2 * m0);
 
     // Enter = All.
-    command(&mut app, "EXTRACTSURFACEOBJECTS EG");
+    command(&mut app, "-EXTRACTSURFACEOBJECTS EG");
     digitar(&mut app, "");
     assert_eq!((conta(&app, CAMADA_MESTRA.0), conta(&app, CAMADA_INTERMEDIARIA.0)), (3 * m0, 3 * n0));
 
@@ -591,7 +591,7 @@ fn compute_materials_tabela_e_excel() {
     command(&mut app, "CREATESECTIONS EIXO1 20 50 50 3 400,0");
 
     // Pela linha de comando, com os padrões: eixo, TN, superfície do corredor; aterro com fator 1,25.
-    for t in ["COMPUTEMATERIALS", "", "", "", "", "1.25"] {
+    for t in ["-COMPUTEMATERIALS", "", "", "", "", "1.25"] {
         digitar(&mut app, t);
     }
     let a = app.civil_al_ler(i, "EIXO1").unwrap();
@@ -656,4 +656,45 @@ fn greide_parcial_e_edicao_do_perfil() {
     assert_eq!(a.pivs.iter().map(|p| p.estaca).collect::<Vec<_>>(), vec![80.0, 120.0]);
     digitar(&mut app, "");
     assert!(app.tabs[i].active_cmd.is_none(), "Enter termina");
+}
+
+/// Janelas de configuração (JP, 18/11): o comando sozinho abre a janela já preenchida; OK despacha o comando, e
+/// quando ele precisa de ponto, pede o ponto no desenho.
+#[test]
+fn janelas_de_configuracao() {
+    use crate::ui::window::civil_dialog::{CivilMsg, Modo};
+    let dir = std::env::temp_dir().join(format!("agral_janela_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    plano(&mut app, &dir);
+    app.tabs[i].scene.ensure_layer("EIXO");
+    let mut p = LwPolyline::new();
+    p.vertices = vec![LwVertex::new(Vector2::new(20.0, 100.0)), LwVertex::new(Vector2::new(180.0, 100.0))];
+    p.common.layer = "EIXO".into();
+    app.tabs[i].scene.add_entities(vec![EntityType::LwPolyline(p)]);
+    command(&mut app, "CREATEALIGNMENT EIXO1 EIXO");
+    // Profile View: janela com eixo, superfície TN e exagero 10; muda o exagero e dá OK; pede o canto.
+    command(&mut app, "CREATEPROFILEVIEW");
+    let campos = match &app.civil_dialog.as_ref().expect("janela aberta").modo {
+        Modo::Formulario(f) => f.campos.iter().map(|c| c.valor.clone()).collect::<Vec<_>>(),
+        _ => panic!("formulário"),
+    };
+    assert_eq!(campos, vec!["EIXO1", "TN", "10"]);
+    let _ = app.update(Message::Civil(CivilMsg::Campo(2, "5".into())));
+    let _ = app.update(Message::Civil(CivilMsg::Ok));
+    assert!(app.civil_dialog.is_none() || app.active_modal.is_none(), "fechou");
+    assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("lower left corner"));
+    digitar(&mut app, "0,-300");
+    assert_eq!(app.civil_al_ler(i, "EIXO1").unwrap().vista.map(|v| v.exagero), Some(5.0));
+    // Campo vazio: a janela avisa e não fecha.
+    command(&mut app, "CREATECORRIDOR EIXO1");
+    let _ = app.update(Message::Civil(CivilMsg::Campo(1, "".into())));
+    let _ = app.update(Message::Civil(CivilMsg::Ok));
+    assert!(app.civil_dialog.as_ref().and_then(|d| d.erro.clone()).is_some_and(|e| e.contains("Section frequency")));
+    // A forma "-" continua na linha de comando.
+    app.close_active_modal();
+    command(&mut app, "-CREATESECTIONS");
+    assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("Alignment"));
 }
