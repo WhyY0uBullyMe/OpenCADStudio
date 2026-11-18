@@ -58,6 +58,7 @@ impl CadModule for CivilModule {
 
 /// Aba contextual TIN Surface: aparece com uma superfície selecionada (como no Civil 3D).
 pub mod pegar_ponto;
+pub mod refazer_curva;
 
 pub struct TinSurfaceModule;
 

@@ -69,3 +69,31 @@ fn cota_no_mouse_depois_de_montar_e_de_reabrir() {
     command(&mut app, "U");
     assert!(cota(&app, 45.0, 15.0).is_none(), "TIN velho não pode dar cota");
 }
+
+#[test]
+fn divgrips_e_spl2pl_refazem_a_polilinha() {
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    app.tabs[i].scene.ensure_layer("CURVAS");
+    let h = app.tabs[i].scene.add_entities(vec![curva(100.0, 0.0)])[0];
+    // Curva de 100 m; vértice a cada 30 m: 0, 30, 60, 90 e 100. Original fica.
+    command(&mut app, &format!("_REFAZERCURVA DIVGRIPS {:X} 30 N", h.value()));
+    let polis: Vec<_> = app.tabs[i].scene.document.entities().filter(|e| matches!(e, EntityType::LwPolyline(_))).cloned().collect();
+    assert_eq!(polis.len(), 2);
+    let EntityType::LwPolyline(nova) = &polis[1] else { unreachable!() };
+    let xs: Vec<f64> = nova.vertices.iter().map(|v| (v.location.x * 1e6).round() / 1e6).collect();
+    assert_eq!(xs, vec![0.0, 30.0, 60.0, 90.0, 100.0]);
+    assert_eq!(nova.elevation, 100.0);
+    assert_eq!(nova.common.layer, "CURVAS");
+    // SPL2PL com 5 vértices apagando a original.
+    command(&mut app, &format!("_REFAZERCURVA SPL2PL {:X} 5 S", h.value()));
+    assert!(app.tabs[i].scene.document.get_entity(h).is_none(), "original apagada");
+    let ultima = app.tabs[i].scene.document.entities().filter_map(|e| match e { EntityType::LwPolyline(p) => Some(p.vertices.len()), _ => None }).last();
+    assert_eq!(ultima, Some(5));
+    // Atalhos do JP na tabela de fábrica.
+    let pgp = include_str!("../../assets/ocad.pgp");
+    for a in ["PPP,      *PASTEORIG", "SZ,       *SELECTSIMILAR", "HH,       *HIDEOBJECTS"] {
+        assert!(pgp.contains(a), "{a}");
+    }
+}

@@ -56,6 +56,34 @@ impl OpenCADStudio {
             .find_map(|h| scene.document.get_entity(h).and_then(crate::app::civil::superficie_da_entidade))
     }
 
+    /// `_REFAZERCURVA <DIVGRIPS|SPL2PL> <handle> <valor> <S|N>`: cria a polilinha nova (mesma camada e cor) e,
+    /// se pedido, apaga a original. Um desfazer volta tudo.
+    fn civil_refazer_curva(&mut self, i: usize, args: &[&str]) -> Result<String, String> {
+        use crate::modules::draw::inquiry::divide::{polilinha_dos_pontos, pontos_a_cada, pontos_em_n};
+        let [modo, h, valor, apagar] = args else { return Err("Usage: _REFAZERCURVA mode handle value Y|N".into()) };
+        let h = u64::from_str_radix(h, 16).map(document::Handle::new).map_err(|_| "Invalid handle.".to_string())?;
+        let e = self.tabs[i].scene.document.get_entity(h).cloned().ok_or("Object no longer exists.")?;
+        let r = if modo.eq_ignore_ascii_case("DIVGRIPS") {
+            valor.parse::<f64>().ok().and_then(|v| pontos_a_cada(&e, v))
+        } else {
+            valor.parse::<usize>().ok().and_then(|n| pontos_em_n(&e, n))
+        };
+        let (pts, fechada) = r.ok_or("Could not rebuild this object.")?;
+        let nova = polilinha_dos_pontos(&e, &pts, fechada).ok_or("Could not rebuild this object.")?;
+        self.push_undo_snapshot(i, if modo.eq_ignore_ascii_case("DIVGRIPS") { "DIVGRIPS" } else { "SPL2PL" });
+        self.tabs[i].scene.add_entities(vec![nova]);
+        let apagou = *apagar == "S";
+        if apagou {
+            self.tabs[i].scene.erase_entities(&[h]);
+        }
+        self.tabs[i].dirty = true;
+        Ok(format!(
+            "Polyline rebuilt with {} vertices{}.",
+            pts.len(),
+            if apagou { "; original deleted" } else { "" }
+        ))
+    }
+
     pub(crate) fn civil_abrir_toolspace(&mut self) {
         if !self.show_toolspace {
             self.show_toolspace = true;
@@ -96,6 +124,18 @@ impl OpenCADStudio {
                     self.civil_encaixar_toolspace();
                 }
             }
+            // Lisps do JP refeitos no programa (18/11): DIVGRIPS (vértice a cada X m) e SPL2PL (N vértices).
+            "DIVGRIPS" | "SPL2PL" => {
+                let nome = if verbo == "DIVGRIPS" { "DIVGRIPS" } else { "SPL2PL" };
+                let c = crate::modules::civil::refazer_curva::RefazerCurvaCommand::new(nome);
+                use crate::command::CadCommand;
+                self.command_line.push_info(&c.prompt());
+                self.tabs[i].active_cmd = Some(Box::new(c));
+            }
+            crate::modules::civil::refazer_curva::APLICAR => match self.civil_refazer_curva(i, &args) {
+                Ok(m) => self.command_line.push_info(&m),
+                Err(e) => self.command_line.push_error(&e),
+            },
             "CREATESURFACE" => {
                 if let Some(nome) = args.first() {
                     // Script: CREATESURFACE <nome> [STYLE=<n>] [descrição]; <n> = posição na lista de estilos (1 = Standard).

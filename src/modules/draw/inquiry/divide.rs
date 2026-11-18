@@ -351,6 +351,78 @@ impl MeasuredCurve {
     }
 }
 
+/// Agral (DIVGRIPS do JP): pontos ao longo da curva a cada `passo`, do início ao fim, mais o ponto final.
+/// Devolve os pontos e se a curva é fechada (fechada: sem repetir o primeiro no fim).
+pub fn pontos_a_cada(entity: &EntityType, passo: f64) -> Option<(Vec<[f64; 3]>, bool)> {
+    if !passo.is_finite() || passo <= 0.0 {
+        return None;
+    }
+    let (curva, total) = measurable(entity)?;
+    let n = (total / passo).ceil();
+    if !(n < 1_000_000.0) {
+        return None;
+    }
+    let mut pts: Vec<[f64; 3]> = (0..n as usize).map(|k| curva.point_at_distance(k as f64 * passo)).collect();
+    let fim = curva.point_at_distance(total);
+    if pts.last().is_none_or(|p| DVec3::from_array(*p).distance(DVec3::from_array(fim)) > 1e-8) {
+        pts.push(fim);
+    }
+    Some(fechar(pts, curva.is_closed()))
+}
+
+/// Agral (SPL2PL do JP): `n` vértices igualmente espaçados ao longo da curva (inclui início e fim).
+pub fn pontos_em_n(entity: &EntityType, n: usize) -> Option<(Vec<[f64; 3]>, bool)> {
+    if !(2..=1_000_000).contains(&n) {
+        return None;
+    }
+    let (curva, total) = measurable(entity)?;
+    let fechada = curva.is_closed();
+    // Fechada: n vértices distintos em volta; aberta: n vértices do início ao fim.
+    let partes = if fechada { n } else { n - 1 };
+    let pts = (0..n).map(|k| curva.point_at_distance(total * k as f64 / partes as f64)).collect();
+    Some((pts, fechada))
+}
+
+fn fechar(mut pts: Vec<[f64; 3]>, fechada: bool) -> (Vec<[f64; 3]>, bool) {
+    if fechada && pts.len() > 2 {
+        let (a, b) = (DVec3::from_array(pts[0]), DVec3::from_array(*pts.last().unwrap()));
+        if a.distance(b) < 1e-8 {
+            pts.pop();
+        }
+    }
+    (pts, fechada)
+}
+
+/// Polilinha com os pontos: LWPOLYLINE na cota do primeiro ponto quando todos têm a mesma cota (curva de
+/// nível), polilinha 3D quando a cota varia. Mantém camada, cor e tipo de linha da curva de origem.
+pub fn polilinha_dos_pontos(origem: &EntityType, pts: &[[f64; 3]], fechada: bool) -> Option<EntityType> {
+    if pts.len() < 2 {
+        return None;
+    }
+    let z0 = pts[0][2];
+    let plana = pts.iter().all(|p| (p[2] - z0).abs() < 1e-9);
+    let mut e = if plana {
+        let mut pl = document::entities::LwPolyline::new();
+        pl.vertices = pts
+            .iter()
+            .map(|p| document::entities::LwVertex::new(document::types::Vector2::new(p[0], p[1])))
+            .collect();
+        pl.elevation = z0;
+        pl.is_closed = fechada;
+        EntityType::LwPolyline(pl)
+    } else {
+        let mut pl = document::entities::Polyline3D::from_points(pts.iter().map(|p| Vector3::new(p[0], p[1], p[2])).collect());
+        pl.flags.closed = fechada;
+        EntityType::Polyline3D(pl)
+    };
+    let (o, c) = (origem.common(), e.common_mut());
+    c.layer = o.layer.clone();
+    c.color = o.color.clone();
+    c.linetype = o.linetype.clone();
+    c.line_weight = o.line_weight;
+    Some(e)
+}
+
 fn measurable(entity: &EntityType) -> Option<(MeasuredCurve, f64)> {
     let (curve, total) = if let Some(curve) = entity_curve(entity) {
         let total = curve.length();
@@ -378,6 +450,36 @@ mod tests {
             panic!("expected point")
         };
         DVec3::new(point.location.x, point.location.y, point.location.z)
+    }
+
+    #[test]
+    fn divgrips_poe_vertice_a_cada_passo_e_no_fim() {
+        let mut l = Line::new();
+        l.end = Vector3::new(12.0, 0.0, 0.0);
+        let (pts, fechada) = pontos_a_cada(&EntityType::Line(l.clone()), 5.0).unwrap();
+        assert!(!fechada);
+        let xs: Vec<f64> = pts.iter().map(|p| (p[0] * 1e6).round() / 1e6).collect();
+        assert_eq!(xs, vec![0.0, 5.0, 10.0, 12.0]);
+        let (pts, _) = pontos_a_cada(&EntityType::Line(l.clone()), 4.0).unwrap();
+        assert_eq!(pts.len(), 4, "12 m a cada 4 m: 0, 4, 8, 12 sem repetir o fim");
+        let mut c = Circle::new();
+        c.radius = 10.0;
+        let (pts, fechada) = pontos_a_cada(&EntityType::Circle(c), 2.0 * std::f64::consts::PI).unwrap();
+        assert!(fechada);
+        assert_eq!(pts.len(), 10, "círculo fechado não repete o primeiro ponto");
+        let pl = polilinha_dos_pontos(&EntityType::Line(l), &[[0.0, 0.0, 7.0], [1.0, 0.0, 7.0]], false).unwrap();
+        assert!(matches!(&pl, EntityType::LwPolyline(p) if p.elevation == 7.0));
+    }
+
+    #[test]
+    fn spl2pl_poe_n_vertices_iguais() {
+        let mut l = Line::new();
+        l.end = Vector3::new(9.0, 0.0, 0.0);
+        let (pts, _) = pontos_em_n(&EntityType::Line(l), 4).unwrap();
+        let xs: Vec<f64> = pts.iter().map(|p| (p[0] * 1e6).round() / 1e6).collect();
+        assert_eq!(xs, vec![0.0, 3.0, 6.0, 9.0]);
+        let pl = polilinha_dos_pontos(&EntityType::Point(PointEnt::new()), &[[0.0, 0.0, 1.0], [1.0, 0.0, 2.0]], false).unwrap();
+        assert!(matches!(pl, EntityType::Polyline3D(_)), "cota variando vira polilinha 3D");
     }
 
     #[test]
