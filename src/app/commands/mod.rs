@@ -1047,6 +1047,7 @@ inventory::submit!(crate::command::CommandRegistration {
         "CREATEALIGNFROMOBJECTS",
         "CREATEALIGNMENTLAYOUT",
         "COMPUTEMATERIALS",
+        "EDITPROFILE",
         "CREATEVOLUMETABLE",
         "EXPORTMATERIALS",
         "ALIGNMENTSTATIONS",

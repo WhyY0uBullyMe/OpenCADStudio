@@ -34,6 +34,22 @@ impl OpenCADStudio {
         self.refresh_properties();
     }
 
+    /// Abre o EDITPROFILE do eixo com o greide e a vista de perfil atuais.
+    fn civil_editar_perfil(&mut self, i: usize, eixo: &str, modo: crate::modules::civil::perfil_edicao::Modo) -> Result<(), String> {
+        let a = self.civil_al_ler(i, eixo)?;
+        if a.pivs.is_empty() {
+            return Err(format!("Alignment '{eixo}' has no design profile yet: use CREATEPROFILE."));
+        }
+        let vista = a.vista.as_ref().map(|v| (v.origem[0], v.origem[1], a.estaca_inicial, v.base, v.exagero));
+        if vista.is_none() {
+            self.command_line.push_info("No profile view: type station,elevation (or create the profile view to click in it).");
+        }
+        let pivs = a.pivs.iter().map(|p| (p.estaca, p.cota, p.curva)).collect();
+        let c = crate::modules::civil::perfil_edicao::PerfilEdicaoCommand::new(&a.nome, vista, pivs, modo);
+        self.civil_instalar(i, Box::new(c));
+        Ok(())
+    }
+
     pub(super) fn civil_instalar(&mut self, i: usize, c: Box<dyn crate::command::CadCommand>) {
         self.command_line.push_info(&c.prompt());
         self.tabs[i].active_cmd = Some(c);
@@ -331,7 +347,20 @@ impl OpenCADStudio {
                 }
                 Err(e) => self.command_line.push_error(&e),
             },
+            "EDITPROFILE" => match self.civil_al_escolher(i, args.first().copied()) {
+                Ok(eixo) => {
+                    let modo = args.get(1).and_then(|m| crate::modules::civil::perfil_edicao::Modo::de(m));
+                    if let Err(e) = self.civil_editar_perfil(i, &eixo, modo.unwrap_or(crate::modules::civil::perfil_edicao::Modo::Mover)) {
+                        self.command_line.push_error(&e);
+                    }
+                }
+                Err(e) => self.command_line.push_error(&e),
+            },
             "_SETPROFILE" => {
+                // "+EDIT=<modo>" no fim: veio do EDITPROFILE, que continua aberto no mesmo modo.
+                let editar = args.last().and_then(|a| a.strip_prefix("+EDIT=")).and_then(crate::modules::civil::perfil_edicao::Modo::de);
+                let args: Vec<&str> = args.iter().copied().filter(|a| !a.starts_with("+EDIT=")).collect();
+                let args = args.as_slice();
                 let r = match args.first() {
                     Some(eixo) => {
                         let pivs: Option<Vec<Piv>> = args[1..]
@@ -345,7 +374,11 @@ impl OpenCADStudio {
                     }
                     None => Err("Usage: CREATEPROFILE alignment e,z[,L] ...".into()),
                 };
+                let ok = r.is_ok();
                 self.civil_al_resultado(r);
+                if let (true, Some(m), Some(eixo)) = (ok, editar, args.first()) {
+                    let _ = self.civil_editar_perfil(i, eixo, m);
+                }
             }
             "CREATESECTIONS" | "CREATESAMPLELINES" | "CREATESECTIONVIEWS" if args.is_empty() => {
                 let c = crate::modules::civil::perguntas::PerguntasCommand::com(

@@ -264,6 +264,18 @@ impl Greide {
     }
 
     /// Cota do greide na estaca; fora dos PIVs, segue a primeira e a última rampa.
+    /// Cota do greide só onde ele existe: entre o primeiro e o último PVI (o perfil não precisa começar no início
+    /// do eixo nem ir até o fim; JP, 18/11). Um PVI só vale para o eixo todo (greide plano).
+    pub fn cota_em(&self, e: f64) -> Option<f64> {
+        let (a, b) = self.faixa();
+        (self.pivs.len() == 1 || (e >= a - 1e-6 && e <= b + 1e-6)).then(|| self.cota(e))
+    }
+
+    /// Primeira e última estaca dos PVIs.
+    pub fn faixa(&self) -> (f64, f64) {
+        (self.pivs.first().map_or(0.0, |p| p.estaca), self.pivs.last().map_or(0.0, |p| p.estaca))
+    }
+
     pub fn cota(&self, e: f64) -> f64 {
         let p = &self.pivs;
         if p.len() == 1 {
@@ -435,6 +447,21 @@ pub fn tangentes_com_curvas(pis: &[[f64; 2]], raio: f64) -> Vec<([f64; 2], f64)>
     }
     out.dedup_by(|x, y| (x.0[0] - y.0[0]).abs() < 1e-9 && (x.0[1] - y.0[1]).abs() < 1e-9);
     out
+}
+
+#[cfg(test)]
+mod testes_greide_parcial {
+    use super::*;
+
+    #[test]
+    fn greide_so_entre_os_pvis() {
+        let g = Greide::novo(vec![Piv { estaca: 40.0, cota: 100.0, curva: 0.0 }, Piv { estaca: 80.0, cota: 104.0, curva: 0.0 }]).unwrap();
+        assert_eq!(g.cota_em(20.0), None);
+        assert_eq!(g.cota_em(60.0), Some(102.0));
+        assert_eq!(g.cota_em(90.0), None);
+        let plano = Greide::novo(vec![Piv { estaca: 40.0, cota: 100.0, curva: 0.0 }]).unwrap();
+        assert_eq!(plano.cota_em(0.0), Some(100.0));
+    }
 }
 
 #[cfg(test)]

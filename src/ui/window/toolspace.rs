@@ -248,7 +248,10 @@ fn linhas_dos_alinhamentos<'a>(alinhamentos: Vec<crate::civil::alinhamentos::Ali
                 .icon(icone(ic!("perfil"), a.pivs.is_empty()))
                 .muted(a.pivs.is_empty())
                 .view(),
-            vec![("Edit PVIs...".into(), format!("CREATEPROFILE {n}"))],
+            vec![
+                ("Edit Profile (Move, Add, Delete, Curve)...".into(), format!("EDITPROFILE {n}")),
+                ("Redraw Profile from Scratch...".into(), format!("CREATEPROFILE {n}")),
+            ],
         ));
         col = col.push(com_menu(
             kit::tree_row(if a.vista.is_some() { "Profile View".to_string() } else { "Profile View (none)".to_string() })

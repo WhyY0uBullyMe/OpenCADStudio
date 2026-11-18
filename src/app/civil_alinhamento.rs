@@ -490,7 +490,16 @@ impl OpenCADStudio {
         let asm = a.assembly.clone().unwrap_or_default();
         let corredor_ok = a.corredor.is_some() && greide.is_some() && matches!(&tin, Some(Ok(_)));
         if let (Some(passo), Some(g), Some(Ok(t))) = (a.corredor, greide.as_ref(), &tin) {
-            let secoes: Vec<SecaoCorredor> = al.estacas(passo).into_iter().map(|e| secao_do_corredor(t, &al, e, g.cota(e), &asm)).collect();
+            // Só onde há greide; as pontas do greide entram como seção.
+            let (ga, gb) = g.faixa();
+            let mut est: Vec<f64> = al.estacas(passo);
+            if g.pivs.len() > 1 {
+                est.extend([ga, gb]);
+                est.retain(|e| *e >= ga - 1e-6 && *e <= gb + 1e-6);
+                est.sort_by(|a, b| a.total_cmp(b));
+                est.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+            }
+            let secoes: Vec<SecaoCorredor> = est.into_iter().map(|e| secao_do_corredor(t, &al, e, g.cota(e), &asm)).collect();
             match self.civil_desenhar_corredor(i, &mut a, &secoes) {
                 Ok(m) => msgs.push(m),
                 Err(e) => msgs.push(format!("Corridor not drawn: {e}")),
@@ -602,13 +611,13 @@ fn desenho_do_perfil(
     if tn.is_empty() {
         return (out, format!("The alignment does not cross surface '{superficie}': no terrain profile."), v.base, v.topo);
     }
-    let gz = |e: f64| greide.map(|g| g.cota(e));
+    let gz = |e: f64| greide.and_then(|g| g.cota_em(e));
     let mut zmin = tn.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
     let mut zmax = tn.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
     if let Some(g) = greide {
-        for e in &estacas {
-            zmin = zmin.min(g.cota(*e));
-            zmax = zmax.max(g.cota(*e));
+        for z in estacas.iter().filter_map(|e| g.cota_em(*e)).chain(g.pivs.iter().map(|p| p.cota)) {
+            zmin = zmin.min(z);
+            zmax = zmax.max(z);
         }
     }
     let largura = al.comprimento();
@@ -644,13 +653,20 @@ fn desenho_do_perfil(
     // Terreno e greide.
     out.extend(polilinha(&tn.iter().map(|(e, z)| [px(*e), py(*z)]).collect::<Vec<_>>(), CAMADA_TN));
     if let Some(g) = greide {
-        let n = ((largura / 0.5).ceil() as usize).clamp(2, 200_000);
-        let pts: Vec<[f64; 2]> = (0..=n)
-            .map(|k| {
-                let e = al.estaca_inicial + largura * k as f64 / n as f64;
-                [px(e), py(g.cota(e))]
-            })
-            .collect();
+        // Só entre o primeiro e o último PVI (dentro do eixo).
+        let (ga, gb) = if g.pivs.len() > 1 { g.faixa() } else { (al.estaca_inicial, al.estaca_final()) };
+        let (ga, gb) = (ga.max(al.estaca_inicial), gb.min(al.estaca_final()));
+        let n = (((gb - ga) / 0.5).ceil() as usize).clamp(2, 200_000);
+        let pts: Vec<[f64; 2]> = if gb > ga {
+            (0..=n)
+                .map(|k| {
+                    let e = ga + (gb - ga) * k as f64 / n as f64;
+                    [px(e), py(g.cota(e))]
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         out.extend(polilinha(&pts, CAMADA_GREIDE));
         for p in &g.pivs {
             if p.estaca >= al.estaca_inicial - 1e-9 && p.estaca <= al.estaca_final() + 1e-9 {
@@ -728,7 +744,9 @@ pub(crate) fn dica_da_vista(
             }
         }
         if let Some(gr) = a.greide() {
-            t.push_str(&format!("\nDesign: {:.3}", gr.cota(e)));
+            if let Some(z) = gr.cota_em(e) {
+                t.push_str(&format!("\nDesign: {z:.3}"));
+            }
         }
         return Some(t);
     }
@@ -747,7 +765,7 @@ fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &
     let corr: Vec<Option<SecaoCorredor>> = estacas
         .iter()
         .map(|e| match (gabarito, greide) {
-            (Some(a), Some(g)) => Some(secao_do_corredor(tin, al, *e, g.cota(*e), a)),
+            (Some(a), Some(g)) => g.cota_em(*e).map(|z| secao_do_corredor(tin, al, *e, z, a)),
             _ => None,
         })
         .collect();
@@ -757,8 +775,10 @@ fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &
         let mut lo = sec.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
         let mut hi = sec.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
         if let Some(g) = greide {
-            lo = lo.min(g.cota(*e));
-            hi = hi.max(g.cota(*e));
+            if let Some(z) = g.cota_em(*e) {
+                lo = lo.min(z);
+                hi = hi.max(z);
+            }
         }
         if let Some(Some(c)) = corr.get(secoes.iter().position(|x| x.0 == *e).unwrap_or(0)) {
             for p in &c.pontos {
@@ -788,7 +808,7 @@ fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &
         let x0 = s.origem[0] + col as f64 * cw + alt * 6.0;
         let y_topo = s.origem[1] - lin as f64 * ch - alt * 3.0;
         let lo = sec.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
-        let lo = greide.map_or(lo, |g| lo.min(g.cota(*e)));
+        let lo = greide.and_then(|g| g.cota_em(*e)).map_or(lo, |z| lo.min(z));
         let base = (lo / dz).floor() * dz - dz;
         let y0 = y_topo - altura;
         let px = |o: f64| x0 + (o + s.esquerda);
@@ -833,8 +853,7 @@ fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &
                 CAMADA_TEXTO,
             ));
         }
-        if let Some(g) = greide {
-            let zg = g.cota(*e);
+        if let Some(zg) = greide.and_then(|g| g.cota_em(*e)) {
             let c = [px(0.0), py(zg)];
             out.push(linha([c[0] - alt, c[1]], [c[0] + alt, c[1]], CAMADA_GREIDE));
             out.push(texto(format!("{zg:.3}"), [c[0], c[1] + alt * 0.6], alt * 0.5, 0.0, true, CAMADA_GREIDE));

@@ -94,6 +94,11 @@ impl CadModule for CivilModule {
                             include_bytes!("../../../assets/icons/civil_profile.svg"),
                         )),
                         RibbonItem::LargeTool(ferramenta(
+                            "EDITPROFILE",
+                            "Edit\nProfile",
+                            include_bytes!("../../../assets/icons/civil_editprofile.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
                             "CREATESECTIONS",
                             "Sections",
                             include_bytes!("../../../assets/icons/civil_sections.svg"),
@@ -152,6 +157,7 @@ impl CadModule for CivilModule {
 pub mod eixo_fonte;
 pub mod pegar_ponto;
 pub mod pivs;
+pub mod perfil_edicao;
 pub mod perguntas;
 pub mod refazer_curva;
 pub mod tracado;
@@ -257,6 +263,7 @@ impl CadModule for HomeModule {
                     "alignobjects" => include_bytes!("../../../assets/icons/civil_alignobjects.svg"),
                     "alignlayout" => include_bytes!("../../../assets/icons/civil_alignlayout.svg"),
                     "profile" => include_bytes!("../../../assets/icons/civil_profile.svg"),
+                    "editprofile" => include_bytes!("../../../assets/icons/civil_editprofile.svg"),
                     "assembly" => include_bytes!("../../../assets/icons/civil_assembly.svg"),
                     "corridor" => include_bytes!("../../../assets/icons/civil_corridor.svg"),
                     "profileview" => include_bytes!("../../../assets/icons/civil_profileview.svg"),
@@ -287,6 +294,7 @@ impl CadModule for HomeModule {
                         RibbonItem::LargeTool(ferramenta("CREATEALIGNMENTENTITIES", "Alignment\nfrom Objects", ic("alignobjects"))),
                         RibbonItem::Tool(ferramenta("CREATEALIGNMENTLAYOUT", "Alignment Layout", ic("alignlayout"))),
                         RibbonItem::LargeTool(ferramenta("CREATEPROFILE", "Profile", ic("profile"))),
+                        RibbonItem::Tool(ferramenta("EDITPROFILE", "Edit Profile", ic("editprofile"))),
                         RibbonItem::LargeTool(ferramenta("CREATEASSEMBLY", "Assembly", ic("assembly"))),
                         RibbonItem::LargeTool(ferramenta("CREATECORRIDOR", "Corridor", ic("corridor"))),
                     ],

@@ -622,3 +622,38 @@ fn compute_materials_tabela_e_excel() {
     let sem_fator = crate::app::civil_materiais::br(u.acum_aterro / 1.25, 2);
     assert!(textos.iter().any(|t| *t == sem_fator), "{sem_fator} em {textos:?}");
 }
+
+/// Greide parcial e EDITPROFILE (JP, 18/11): o perfil não precisa começar no início do eixo, e dá para mexer depois.
+#[test]
+fn greide_parcial_e_edicao_do_perfil() {
+    let dir = std::env::temp_dir().join(format!("agral_greide_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    plano(&mut app, &dir);
+    app.tabs[i].scene.ensure_layer("EIXO");
+    let mut p = LwPolyline::new();
+    p.vertices = vec![LwVertex::new(Vector2::new(20.0, 100.0)), LwVertex::new(Vector2::new(180.0, 100.0))];
+    p.common.layer = "EIXO".into();
+    app.tabs[i].scene.add_entities(vec![EntityType::LwPolyline(p)]);
+    command(&mut app, "CREATEALIGNMENT EIXO1 EIXO");
+    command(&mut app, "CREATEPROFILEVIEW EIXO1 TN 10 0,-300");
+    // Greide só de 40 a 120.
+    command(&mut app, "CREATEPROFILE EIXO1 40,106 120,108");
+    let g = app.civil_al_ler(i, "EIXO1").unwrap().greide().unwrap();
+    assert_eq!(g.cota_em(20.0), None);
+    assert_eq!(g.cota_em(80.0), Some(107.0));
+
+    // EDITPROFILE: inclui um PVI digitado, o comando continua aberto; muda para Delete e apaga o primeiro.
+    command(&mut app, "EDITPROFILE EIXO1 ADD");
+    digitar(&mut app, "80,110");
+    assert_eq!(app.civil_al_ler(i, "EIXO1").unwrap().pivs.len(), 3);
+    assert_eq!(app.tabs[i].active_cmd.as_ref().map(|c| c.name()), Some("EDITPROFILE"), "continua editando");
+    digitar(&mut app, "D");
+    digitar(&mut app, "40,106");
+    let a = app.civil_al_ler(i, "EIXO1").unwrap();
+    assert_eq!(a.pivs.iter().map(|p| p.estaca).collect::<Vec<_>>(), vec![80.0, 120.0]);
+    digitar(&mut app, "");
+    assert!(app.tabs[i].active_cmd.is_none(), "Enter termina");
+}
