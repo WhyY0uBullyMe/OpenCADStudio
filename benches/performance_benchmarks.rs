@@ -1302,7 +1302,9 @@ fn bench_ui_grip_budget(runner: &mut BenchmarkRunner) {
     // entities/common.rs `rectangle_grip`): `Rectangle` shape with `dir:
     // Some(chord)` so the bench exercises the second `camera.project` in
     // `grips_to_screen` (scene/pick/grip.rs), exactly like production.
-    let n_vertices = if runner.quick_mode { 10_000 } else { 100_000 };
+    // Agral CAD: the budget is all or nothing; the worst case that still draws is a polyline whose
+    // vertices fill the cap (its midpoints are dropped together).
+    let n_vertices = MAX_SELECTED_GRIPS;
     let mut all_grips = Vec::with_capacity(2 * n_vertices);
     for v in 0..n_vertices {
         let base = (v % 1024) as f64;
@@ -1336,7 +1338,7 @@ fn bench_ui_grip_budget(runner: &mut BenchmarkRunner) {
     // the full fixture stays available for the `ui_grip_budget_build` timing
     // below, which measures this same selection-change cost per iteration.
     let (capped_grips, _) = apply_grip_budget(all_grips.clone(), all_handles.clone());
-    assert_eq!(capped_grips.len(), MAX_SELECTED_GRIPS.min(2 * n_vertices));
+    assert_eq!(capped_grips.len(), n_vertices);
 
     let cam = Camera::default();
     let bounds = Rectangle {

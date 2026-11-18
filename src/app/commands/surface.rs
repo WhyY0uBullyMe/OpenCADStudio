@@ -384,23 +384,31 @@ impl OpenCADStudio {
                 self.civil_resultado(r);
             }
             "EXTRACTSURFACEOBJECTS" => {
-                // EXTRACTSURFACEOBJECTS [superfície] [MAJOR] [MINOR] [BORDER] [TRIANGLES]; sem tipos = curvas e borda.
-                use crate::civil::estilos::{CAMADA_BORDA, CAMADA_INTERMEDIARIA, CAMADA_MESTRA, CAMADA_TRIANGULOS};
+                // EXTRACTSURFACEOBJECTS [superfície] [ALL|MAJOR|MINOR|BORDER|TRIANGLES]... Sem o tipo, pergunta
+                // (pedido do JP, 18/11: escolher todos, só as mestras ou só as intermediárias).
                 let mut nome = None;
                 let mut camadas: Vec<&str> = Vec::new();
                 for a in &args {
-                    match a.to_ascii_uppercase().as_str() {
-                        "MAJOR" => camadas.push(CAMADA_MESTRA.0),
-                        "MINOR" => camadas.push(CAMADA_INTERMEDIARIA.0),
-                        "BORDER" => camadas.push(CAMADA_BORDA.0),
-                        "TRIANGLES" => camadas.push(CAMADA_TRIANGULOS.0),
-                        _ => nome = Some(*a),
+                    match tipos_de_extracao(a) {
+                        Some(c) => c.into_iter().for_each(|c| if !camadas.contains(&c) { camadas.push(c) }),
+                        None => nome = Some(*a),
                     }
                 }
-                if camadas.is_empty() {
-                    camadas = vec![CAMADA_MESTRA.0, CAMADA_INTERMEDIARIA.0, CAMADA_BORDA.0];
-                }
                 let nome = nome.map(str::to_string).or_else(|| self.civil_superficie_selecionada(i));
+                if camadas.is_empty() {
+                    let mut perguntas = Vec::new();
+                    let verbo = match self.civil_escolher(i, nome.as_deref()) {
+                        Ok(n) if nome.is_some() => format!("EXTRACTSURFACEOBJECTS \"{n}\""),
+                        _ => {
+                            perguntas.push(self.civil_pergunta_superficie(i, None));
+                            "EXTRACTSURFACEOBJECTS".to_string()
+                        }
+                    };
+                    perguntas.push("Objects to extract [All/MAjor/MInor/Border/Triangles] <All>:".to_string());
+                    let c = crate::modules::civil::perguntas::PerguntasCommand::com("EXTRACTSURFACEOBJECTS", &verbo, perguntas);
+                    self.civil_instalar(i, Box::new(c));
+                    return Some(Task::none());
+                }
                 let r = self.civil_escolher(i, nome.as_deref()).and_then(|n| self.civil_extrair(i, &n, &camadas));
                 self.civil_resultado(r);
             }
@@ -648,4 +656,29 @@ mod testes_argumentos {
         assert_eq!(super::argumentos("  a  b "), vec!["a", "b"]);
         assert!(super::argumentos("").is_empty());
     }
+}
+
+/// Tipos do EXTRACTSURFACEOBJECTS numa resposta ("All", "Major", "MI", "Major,Minor", "Major Border"): as camadas
+/// do estilo de cada um. `None` se alguma palavra não for tipo (é o nome da superfície).
+fn tipos_de_extracao(texto: &str) -> Option<Vec<&'static str>> {
+    use crate::civil::estilos::{CAMADA_BORDA, CAMADA_INTERMEDIARIA, CAMADA_MESTRA, CAMADA_TRIANGULOS};
+    let mut out = Vec::new();
+    for p in texto.split([',', ' ', '/']).filter(|p| !p.is_empty()) {
+        let p = p.to_ascii_uppercase();
+        let eh = |palavra: &str, minimo: usize| p.len() >= minimo && palavra.starts_with(p.as_str());
+        if eh("ALL", 1) || eh("TODOS", 2) {
+            out.extend([CAMADA_MESTRA.0, CAMADA_INTERMEDIARIA.0, CAMADA_BORDA.0]);
+        } else if eh("MAJOR", 2) {
+            out.push(CAMADA_MESTRA.0);
+        } else if eh("MINOR", 2) {
+            out.push(CAMADA_INTERMEDIARIA.0);
+        } else if eh("BORDER", 1) {
+            out.push(CAMADA_BORDA.0);
+        } else if eh("TRIANGLES", 1) {
+            out.push(CAMADA_TRIANGULOS.0);
+        } else {
+            return None;
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }

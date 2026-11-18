@@ -23,45 +23,30 @@ const PARALLEL_AGGREGATE_MIN: usize = 32;
 /// most one wave of builds is ever wasted.
 const PARALLEL_AGGREGATE_CHUNK: usize = 256;
 
-/// Cap the total number of selection grips at
-/// [`crate::app::settings::MAX_SELECTED_GRIPS`], keeping entity order with
-/// non-midpoint (vertex/stretch) grips first. Below the cap both vecs are
-/// returned untouched, so existing selections are identical. The parallel
-/// `handles` vec is truncated in lockstep with `grips`.
+/// Grip budget of a selection, all or nothing (Agral CAD, JP 18/11: "quero ver todos os grips ou nenhum").
+/// Up to [`crate::app::settings::MAX_SELECTED_GRIPS`] every grip is kept. Past it, the midpoint grips of the
+/// whole selection go (never only some of them), so every vertex still has its grip; if the vertices alone
+/// are past it, the selection gets no grips at all. A dense polyline never shows grips on only part of it.
 ///
 /// `pub` (not private) so the `cargo bench` harness (external crate) measures
 /// the real function as `ui_grip_budget`.
 pub fn apply_grip_budget(
-    mut grips: Vec<GripDef>,
-    mut handles: Vec<Handle>,
+    grips: Vec<GripDef>,
+    handles: Vec<Handle>,
 ) -> (Vec<GripDef>, Vec<Handle>) {
     debug_assert_eq!(
         grips.len(),
         handles.len(),
         "grips/handles are parallel vecs built in lockstep"
     );
-    if grips.len() > crate::app::settings::MAX_SELECTED_GRIPS {
-        // Vertex budget: one dense polyline can emit ~2 grips/vertex past the
-        // object-count gate above. Keep entity order; non-midpoint (stretch)
-        // grips first, midpoints fill the remainder.
-        let cap = crate::app::settings::MAX_SELECTED_GRIPS;
-        let mut idx: Vec<usize> = (0..grips.len()).collect();
-        idx.sort_by_key(|&j| grips[j].is_midpoint); // false (vertex) first; stable
-        idx.truncate(cap);
-        idx.sort_unstable(); // restore entity order for determinism
-        let keep: rustc_hash::FxHashSet<usize> = idx.into_iter().collect();
-        let mut kept_grips = Vec::with_capacity(cap);
-        let mut kept_handles = Vec::with_capacity(cap);
-        for (j, (grip, handle)) in grips.into_iter().zip(handles.into_iter()).enumerate() {
-            if keep.contains(&j) {
-                kept_grips.push(grip);
-                kept_handles.push(handle);
-            }
-        }
-        grips = kept_grips;
-        handles = kept_handles;
+    let cap = crate::app::settings::MAX_SELECTED_GRIPS;
+    if grips.len() <= cap {
+        return (grips, handles);
     }
-    (grips, handles)
+    if grips.iter().filter(|g| !g.is_midpoint).count() > cap {
+        return (Vec::new(), Vec::new());
+    }
+    grips.into_iter().zip(handles).filter(|(g, _)| !g.is_midpoint).unzip()
 }
 
 fn visual_style_properties_text(style: &document::objects::VisualStyle) -> String {
@@ -6717,118 +6702,59 @@ mod grip_limit_tests {
         }
     }
 
-    #[test]
-    fn refresh_selected_grips_caps_total_grip_count() {
-        let cap = crate::app::settings::MAX_SELECTED_GRIPS;
-        let n = cap + 500;
-        let grips: Vec<GripDef> = (0..n).map(|id| test_grip(id, false)).collect();
+    fn budget(n: usize, midpoint: impl Fn(usize) -> bool) -> (Vec<GripDef>, Vec<Handle>) {
+        let grips: Vec<GripDef> = (0..n).map(|id| test_grip(id, midpoint(id))).collect();
         let handles: Vec<Handle> = (0..n as u64).map(|k| Handle::new(k + 1)).collect();
-        let (grips, handles) = super::apply_grip_budget(grips, handles);
-        assert_eq!(
-            grips.len(),
-            cap,
-            "grips past the budget must be dropped, kept {}/{}",
-            grips.len(),
-            n,
-        );
-        assert_eq!(
-            handles.len(),
-            grips.len(),
-            "handles must stay in lockstep with grips",
-        );
-        for (grip, handle) in grips.iter().zip(handles.iter()) {
-            assert_eq!(
-                *handle,
-                Handle::new(grip.id as u64 + 1),
-                "handle at each index must still belong to its grip",
-            );
-        }
+        super::apply_grip_budget(grips, handles)
     }
 
+    /// Agral CAD: never a part of the grips. Up to the cap, all of them.
     #[test]
-    fn refresh_selected_grips_prefers_vertex_grips_over_midpoints() {
+    fn grip_budget_keeps_everything_up_to_the_cap() {
         let cap = crate::app::settings::MAX_SELECTED_GRIPS;
-        let n = cap + 500;
-        // Interleaved: even ids are midpoints, odd ids are vertices.
-        let grips: Vec<GripDef> = (0..n).map(|id| test_grip(id, id % 2 == 0)).collect();
-        let handles: Vec<Handle> = (0..n as u64).map(|k| Handle::new(k + 1)).collect();
-        let (grips, handles) = super::apply_grip_budget(grips, handles);
-        assert_eq!(grips.len(), cap);
-        assert_eq!(handles.len(), grips.len());
-        // Fewer vertices than the cap: every vertex grip survives, midpoints
-        // fill the remainder — no vertex is sacrificed for a midpoint.
-        let kept_vertices: Vec<usize> = grips
-            .iter()
-            .filter(|grip| !grip.is_midpoint)
-            .map(|grip| grip.id)
-            .collect();
-        let all_vertices: Vec<usize> = (0..n).filter(|id| id % 2 == 1).collect();
-        assert_eq!(
-            kept_vertices, all_vertices,
-            "no vertex grip may be sacrificed for a midpoint",
-        );
-        let ids: Vec<usize> = grips.iter().map(|grip| grip.id).collect();
-        assert!(ids.is_sorted(), "retained grips must keep entity order");
-        for (grip, handle) in grips.iter().zip(handles.iter()) {
-            assert_eq!(*handle, Handle::new(grip.id as u64 + 1));
-        }
-
-        // Vertices alone past the cap: the tail is truncated deterministically.
-        let over = cap + 100;
-        let grips: Vec<GripDef> = (0..over).map(|id| test_grip(id, false)).collect();
-        let handles: Vec<Handle> = (0..over as u64).map(|k| Handle::new(k + 1)).collect();
-        let (grips, handles) = super::apply_grip_budget(grips, handles);
-        assert_eq!(grips.len(), cap);
-        assert_eq!(handles.len(), grips.len());
-        assert!(
-            grips.iter().zip(0..cap).all(|(grip, id)| grip.id == id),
-            "vertex overflow must keep the first `cap` grips in entity order",
-        );
-        for (grip, handle) in grips.iter().zip(handles.iter()) {
-            assert_eq!(*handle, Handle::new(grip.id as u64 + 1));
-        }
+        assert!(budget(0, |_| false).0.is_empty());
+        let (g, h) = budget(cap, |id| id % 2 == 0);
+        assert_eq!((g.len(), h.len()), (cap, cap));
+        assert!(g.iter().zip(&h).all(|(g, h)| *h == Handle::new(g.id as u64 + 1)));
     }
 
+    /// Past the cap: every vertex grip stays and every midpoint grip goes (no midpoints on only part of
+    /// the polyline, the bug JP saw on 18/11).
     #[test]
-    fn grip_budget_boundary_lengths() {
+    fn grip_budget_drops_all_midpoints_never_some() {
         let cap = crate::app::settings::MAX_SELECTED_GRIPS;
+        let n = cap + 500;
+        let (g, h) = budget(n, |id| id % 2 == 0);
+        assert_eq!(g.len(), n / 2);
+        assert!(g.iter().all(|g| !g.is_midpoint));
+        let ids: Vec<usize> = g.iter().map(|g| g.id).collect();
+        assert_eq!(ids, (0..n).filter(|id| id % 2 == 1).collect::<Vec<_>>());
+        assert!(g.iter().zip(&h).all(|(g, h)| *h == Handle::new(g.id as u64 + 1)));
+    }
 
-        // Empty vec passthrough.
-        let (grips, handles) = super::apply_grip_budget(Vec::new(), Vec::new());
-        assert!(grips.is_empty());
-        assert!(handles.is_empty());
+    /// Vertices alone past the cap: no grips at all, never the first ones only.
+    #[test]
+    fn grip_budget_too_many_vertices_gives_no_grips() {
+        let cap = crate::app::settings::MAX_SELECTED_GRIPS;
+        let (g, h) = budget(cap + 1, |_| false);
+        assert!(g.is_empty() && h.is_empty());
+    }
 
-        // len == cap passthrough: content untouched.
-        let grips: Vec<GripDef> = (0..cap).map(|id| test_grip(id, id % 2 == 0)).collect();
-        let handles: Vec<Handle> = (0..cap as u64).map(|k| Handle::new(k + 1)).collect();
-        let (kept_grips, kept_handles) = super::apply_grip_budget(grips, handles);
-        assert_eq!(kept_grips.len(), cap);
-        assert_eq!(kept_handles.len(), cap);
-        assert!(
-            kept_grips
-                .iter()
-                .zip(0..cap)
-                .all(|(grip, id)| grip.id == id),
-            "at exactly the cap every grip must survive in order",
-        );
-        for (grip, handle) in kept_grips.iter().zip(kept_handles.iter()) {
-            assert_eq!(*handle, Handle::new(grip.id as u64 + 1));
-        }
-
-        // len == cap + 1 truncates to cap.
-        let over = cap + 1;
-        let grips: Vec<GripDef> = (0..over).map(|id| test_grip(id, false)).collect();
-        let handles: Vec<Handle> = (0..over as u64).map(|k| Handle::new(k + 1)).collect();
-        let (kept_grips, kept_handles) = super::apply_grip_budget(grips, handles);
-        assert_eq!(kept_grips.len(), cap);
-        assert_eq!(kept_handles.len(), cap);
-        assert!(
-            kept_grips
-                .iter()
-                .zip(0..cap)
-                .all(|(grip, id)| grip.id == id),
-            "one over the cap must drop exactly the tail grip",
-        );
+    /// A long polyline (3000 vertices, 6000 grips) shows a grip on every vertex.
+    #[test]
+    fn a_long_polyline_gets_a_grip_on_every_vertex() {
+        use document::entities::{EntityType, LwPolyline, LwVertex};
+        let mut app = OpenCADStudio::new_for_test();
+        app.automation_op(r#"{"op":"new"}"#);
+        let i = app.active_tab;
+        let mut p = LwPolyline::default();
+        p.vertices = (0..3000).map(|k| LwVertex::new(document::types::Vector2::new(k as f64, ((k % 7) as f64) * 0.3))).collect();
+        let h = app.tabs[i].scene.add_entity(EntityType::LwPolyline(p));
+        app.tabs[i].scene.select_entity(h, false);
+        app.refresh_selected_grips();
+        let g = &app.tabs[i].selected_grips;
+        assert_eq!(g.len(), 3000);
+        assert!(g.iter().all(|g| !g.is_midpoint));
     }
 
     #[test]

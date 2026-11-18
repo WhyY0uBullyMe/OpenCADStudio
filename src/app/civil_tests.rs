@@ -468,3 +468,47 @@ fn object_viewer_abre_a_superficie_em_3d_num_desenho_a_parte() {
         assert!(titulos.contains(&t), "{t} em {titulos:?}");
     }
 }
+
+/// EXTRACTSURFACEOBJECTS sem tipo pergunta o que extrair (JP, 18/11): todos, só mestras ou só intermediárias.
+#[test]
+fn extrair_objetos_pergunta_o_tipo() {
+    use crate::civil::estilos::{CAMADA_INTERMEDIARIA, CAMADA_MESTRA};
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    app.tabs[i].scene.ensure_layer("CURVAS");
+    app.tabs[i].scene.add_entities(vec![curva(100.0, 0.0), curva(105.0, 50.0), curva(110.0, 100.0)]);
+    command(&mut app, "CREATESURFACE EG");
+    command(&mut app, "ADDSURFACECONTOURS EG CURVAS FIX=0");
+    let conta = |app: &OpenCADStudio, camada: &str| {
+        app.tabs[app.active_tab].scene.document.entities().filter(|e| e.common().layer.eq_ignore_ascii_case(camada)).count()
+    };
+    let (m0, n0) = (conta(&app, CAMADA_MESTRA.0), conta(&app, CAMADA_INTERMEDIARIA.0));
+    assert!(m0 > 0 && n0 > 0, "o estilo desenha as duas: {m0} {n0}");
+
+    // Sem nada: pergunta a superfície (padrão EG) e o tipo.
+    command(&mut app, "EXTRACTSURFACEOBJECTS");
+    assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("<EG>"));
+    digitar(&mut app, "");
+    assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("[All/MAjor/MInor"));
+    digitar(&mut app, "MAjor");
+    assert!(app.tabs[i].active_cmd.is_none());
+    assert_eq!(conta(&app, CAMADA_MESTRA.0), 2 * m0, "só as mestras");
+    assert_eq!(conta(&app, CAMADA_INTERMEDIARIA.0), n0);
+
+    // Com a superfície: só o tipo; "MI" = intermediárias.
+    command(&mut app, "EXTRACTSURFACEOBJECTS EG");
+    digitar(&mut app, "MI");
+    assert_eq!(conta(&app, CAMADA_INTERMEDIARIA.0), 2 * n0, "só as intermediárias");
+    assert_eq!(conta(&app, CAMADA_MESTRA.0), 2 * m0);
+
+    // Enter = All.
+    command(&mut app, "EXTRACTSURFACEOBJECTS EG");
+    digitar(&mut app, "");
+    assert_eq!((conta(&app, CAMADA_MESTRA.0), conta(&app, CAMADA_INTERMEDIARIA.0)), (3 * m0, 3 * n0));
+
+    // Roteiro direto, sem pergunta.
+    command(&mut app, "EXTRACTSURFACEOBJECTS EG MAJOR,MINOR");
+    assert!(app.tabs[i].active_cmd.is_none());
+    assert_eq!((conta(&app, CAMADA_MESTRA.0), conta(&app, CAMADA_INTERMEDIARIA.0)), (4 * m0, 4 * n0));
+}

@@ -34,7 +34,7 @@ impl OpenCADStudio {
         self.refresh_properties();
     }
 
-    fn civil_instalar(&mut self, i: usize, c: Box<dyn crate::command::CadCommand>) {
+    pub(super) fn civil_instalar(&mut self, i: usize, c: Box<dyn crate::command::CadCommand>) {
         self.command_line.push_info(&c.prompt());
         self.tabs[i].active_cmd = Some(c);
     }
@@ -47,7 +47,7 @@ impl OpenCADStudio {
         }
     }
 
-    fn civil_pergunta_superficie(&self, i: usize, eixo: Option<&str>) -> String {
+    pub(super) fn civil_pergunta_superficie(&self, i: usize, eixo: Option<&str>) -> String {
         let da = eixo.and_then(|e| self.civil_al_ler(i, e).ok()).map(|a| a.superficie).filter(|s| !s.is_empty());
         match da.or_else(|| self.civil_escolher(i, None).ok()) {
             Some(n) => format!("Surface name <{n}>:"),
