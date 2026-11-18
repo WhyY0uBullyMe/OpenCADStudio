@@ -212,7 +212,7 @@ impl PanelId {
             PanelId::ParametersManager => include_bytes!("../../assets/icons/table.svg"),
             PanelId::ExternalReferences => crate::ui::icons::FOLDER_OPEN,
             PanelId::Browser => include_bytes!("../../assets/icons/content_browser.svg"),
-            PanelId::Toolspace => include_bytes!("../../assets/icons/content_browser.svg"),
+            PanelId::Toolspace => include_bytes!("../../assets/icons/civil_toolspace.svg"),
             PanelId::NodeGraph => crate::ui::icons::NODE_GRAPH,
             PanelId::PointCloudManager => include_bytes!("../../assets/icons/pc_attach.svg"),
             PanelId::Count => include_bytes!("../../assets/icons/data_extract.svg"),
