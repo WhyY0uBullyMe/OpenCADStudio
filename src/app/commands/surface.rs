@@ -270,6 +270,43 @@ impl OpenCADStudio {
                 }
                 Err(e) => self.command_line.push_error(&e),
             },
+            // ADDSURFACEPOINTFILE [superfície] [arquivo] [PNEZD|PENZD|NEZ|ENZ]; sem arquivo, abre a escolha do arquivo.
+            "ADDSURFACEPOINTFILE" => match self.civil_escolher(i, args.first().copied()) {
+                Ok(n) => {
+                    let formato = args.get(2).copied().unwrap_or("PNEZD").to_ascii_uppercase();
+                    if crate::app::civil::formato_de_pontos(&formato).is_none() {
+                        self.command_line.push_error("Format: PNEZD, PENZD, NEZ or ENZ.");
+                    } else if let Some(caminho) = args.get(1) {
+                        let mut item = ItemDwg::novo(&format!("POINTFILE_{formato}"), caminho);
+                        item.fontes.clear();
+                        let r = if std::path::Path::new(caminho).is_file() {
+                            self.civil_acrescentar_item(i, &n, item)
+                        } else {
+                            Err(format!("File not found: {caminho}"))
+                        };
+                        self.civil_resultado(r);
+                    } else {
+                        return Some(iced::Task::perform(
+                            async move {
+                                let h = crate::sys::file_dialog()
+                                    .set_title("Add Point File")
+                                    .add_filter("Point files (*.txt, *.csv, *.xyz, *.pnezd)", &["txt", "csv", "xyz", "pnezd", "prn"])
+                                    .pick_file()
+                                    .await?;
+                                Some(crate::sys::handle_path(&h))
+                            },
+                            move |p| match p {
+                                Some(p) => Message::Command(format!(
+                                    "ADDSURFACEPOINTFILE {n} \"{}\" {formato}",
+                                    p.display()
+                                )),
+                                None => Message::Noop,
+                            },
+                        ));
+                    }
+                }
+                Err(e) => self.command_line.push_error(&e),
+            },
             APLICAR_QUEBRAS => {
                 if let Some(nome) = args.first() {
                     let mut item = ItemDwg::novo("BREAKLINES", "");

@@ -460,6 +460,12 @@ impl OpenCADStudio {
             comprimento_maximo: s.comprimento_maximo,
             curvas: Vec::new(),
             quebras: Vec::new(),
+            arquivos_pontos: s
+                .itens
+                .iter()
+                .filter(|it| it.ligado && it.tipo.starts_with("POINTFILE"))
+                .map(|it| (it.descricao.clone(), it.tipo.trim_start_matches("POINTFILE_").to_string()))
+                .collect(),
             externos: Vec::new(),
             furos: Vec::new(),
             edits: s.itens.iter().filter(|it| it.ligado && it.tipo.starts_with("EDIT_")).cloned().collect(),
@@ -589,7 +595,7 @@ impl OpenCADStudio {
         t0: Instant,
         t_ler: std::time::Duration,
     ) -> Result<String, String> {
-        let MontagemSuperficie { tin, cruzamentos_achados, ligacoes, corrigidos, emendas, restantes } = m;
+        let MontagemSuperficie { tin, avisos, cruzamentos_achados, ligacoes, corrigidos, emendas, restantes } = m;
         let montagem_tin = std::sync::Arc::new(tin);
         let t_montar = t0.elapsed();
 
@@ -680,6 +686,9 @@ impl OpenCADStudio {
         }
         if sumidas > 0 {
             msg.push_str(&format!(" {sumidas} source objects no longer exist."));
+        }
+        for a in &avisos {
+            msg.push_str(&format!(" WARNING: {a}"));
         }
         Ok(msg)
     }
@@ -874,6 +883,8 @@ pub(crate) struct EntradaSuperficie {
     /// Um grupo por item de curvas: (curvas, corrigir, folga da emenda).
     curvas: Vec<(Vec<Vec<[f64; 3]>>, bool, f64)>,
     quebras: Vec<Vec<[f64; 3]>>,
+    /// Arquivos de pontos (caminho, formato): lidos de novo a cada montagem, fora da linha da tela.
+    arquivos_pontos: Vec<(String, String)>,
     externos: Vec<Vec<[f64; 3]>>,
     furos: Vec<Vec<[f64; 3]>>,
     edits: Vec<ItemDwg>,
@@ -882,6 +893,8 @@ pub(crate) struct EntradaSuperficie {
 
 pub(crate) struct MontagemSuperficie {
     pub tin: Tin,
+    /// Avisos da montagem (arquivo sumido, linhas que não leram).
+    avisos: Vec<String>,
     cruzamentos_achados: Vec<[f64; 3]>,
     ligacoes: Vec<[[f64; 3]; 2]>,
     corrigidos: usize,
@@ -939,6 +952,27 @@ pub(crate) fn montar_entrada(e: EntradaSuperficie, fase: &std::sync::atomic::Ato
     if !e.quebras.is_empty() {
         sup.acrescentar(ItemDefinicao::linhas_de_quebra("breaklines", e.quebras));
     }
+    let mut avisos = Vec::new();
+    for (caminho, formato) in &e.arquivos_pontos {
+        match ler_pontos_do_arquivo(caminho, formato) {
+            Ok((pts, ruins)) => {
+                if !ruins.is_empty() {
+                    let mostra: Vec<String> = ruins.iter().take(5).map(|r| format!("line {}: {}", r.linha, r.motivo)).collect();
+                    avisos.push(format!(
+                        "{} lines of {} could not be read ({}{}).",
+                        ruins.len(),
+                        caminho,
+                        mostra.join("; "),
+                        if ruins.len() > 5 { "; ..." } else { "" }
+                    ));
+                }
+                if !pts.is_empty() {
+                    sup.acrescentar(ItemDefinicao::pontos(caminho, pts));
+                }
+            }
+            Err(m) => avisos.push(m),
+        }
+    }
     for l in &e.externos {
         sup.acrescentar(ItemDefinicao::limite_externo("boundary", l.clone()));
     }
@@ -963,5 +997,28 @@ pub(crate) fn montar_entrada(e: EntradaSuperficie, fase: &std::sync::atomic::Ato
             _ => {}
         }
     }
-    MontagemSuperficie { tin, cruzamentos_achados, ligacoes, corrigidos, emendas, restantes }
+    MontagemSuperficie { tin, avisos, cruzamentos_achados, ligacoes, corrigidos, emendas, restantes }
+}
+
+/// Formato do arquivo de pontos pelo nome (PNEZD, PENZD, NEZ, ENZ; padrão PNEZD).
+pub(crate) fn formato_de_pontos(nome: &str) -> Option<agral_civil_motor::pontos::FormatoPontos> {
+    use agral_civil_motor::pontos::FormatoPontos::*;
+    Some(match nome.to_ascii_uppercase().as_str() {
+        "" | "PNEZD" => Pnezd,
+        "PENZD" => Penzd,
+        "NEZ" => Nez,
+        "ENZ" => Enz,
+        _ => return None,
+    })
+}
+
+fn ler_pontos_do_arquivo(
+    caminho: &str,
+    formato: &str,
+) -> Result<(Vec<[f64; 3]>, Vec<agral_civil_motor::pontos::LinhaRuim>), String> {
+    let f = formato_de_pontos(formato).ok_or_else(|| format!("Unknown point file format '{formato}'."))?;
+    let bytes = std::fs::read(caminho).map_err(|e| format!("Point file {caminho} could not be read ({e}); its points were left out."))?;
+    let texto = String::from_utf8(bytes).unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect());
+    let r = agral_civil_motor::pontos::ler_arquivo_de_pontos(&texto, f);
+    Ok((r.pontos.into_iter().map(|p| p.xyz).collect(), r.linhas_ruins))
 }

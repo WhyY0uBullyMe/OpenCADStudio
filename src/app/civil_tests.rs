@@ -188,3 +188,36 @@ fn linha_de_quebra_manda_na_cota() {
     let (_, z) = cota(&app, 40.0, 5.0).unwrap();
     assert!((z - 103.0).abs() < 1e-6, "ao longo da crista também: {z}");
 }
+
+#[test]
+fn arquivo_de_pontos_entra_na_superficie_e_avisa_linhas_ruins() {
+    let dir = std::env::temp_dir().join(format!("agral_pontos_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let arq = dir.join("levantamento.txt");
+    // PNEZD: número, norte, este, cota, descrição. Plano z = 200 + x/10 num quadrado de 100 m; uma linha ruim.
+    let mut t = String::new();
+    let mut n = 1;
+    for x in (0..=100).step_by(10) {
+        for y in (0..=100).step_by(10) {
+            t.push_str(&format!("{n},{y},{x},{:.3},TN\n", 200.0 + x as f64 / 10.0));
+            n += 1;
+        }
+    }
+    t.push_str("999,abc,10,200,RUIM\n");
+    std::fs::write(&arq, t).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    command(&mut app, "CREATESURFACE PT");
+    command(&mut app, &format!("ADDSURFACEPOINTFILE PT \"{}\" PNEZD", arq.display()));
+    let s = crate::civil::superficies(&app.tabs[app.active_tab].scene.document).remove(0);
+    assert!(s.itens.iter().any(|it| it.tipo == "POINTFILE_PNEZD"));
+    let (_, z) = cota(&app, 55.0, 33.0).expect("cota dentro do levantamento");
+    assert!((z - 205.5).abs() < 1e-6, "z = {z}");
+    let avisou = app.command_line.history.iter().map(|h| h.text.clone()).any(|l| l.contains("1 lines of") && l.contains("line 122"));
+    assert!(avisou, "a linha ruim aparece no aviso com o número");
+    // Arquivo sumido: avisa e não apaga a superfície.
+    std::fs::remove_file(&arq).unwrap();
+    command(&mut app, "REBUILDSURFACE PT");
+    assert!(app.command_line.history.iter().map(|h| h.text.clone()).any(|l| l.contains("could not be read")));
+    let _ = std::fs::remove_dir_all(&dir);
+}

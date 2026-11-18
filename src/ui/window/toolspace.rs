@@ -40,7 +40,7 @@ fn icone_do_item(tipo: &str) -> &'static [u8] {
         "EDIT_DELETELINE" => ic!("edit_linha_menos"),
         "EDIT_RAISELOWER" => ic!("edit_elevar"),
         "BREAKLINES" => ic!("quebras"),
-        "POINTFILE" => ic!("arquivo_pontos"),
+        t if t.starts_with("POINTFILE") => ic!("arquivo_pontos"),
         _ => ic!("objetos"),
     }
 }
@@ -64,7 +64,7 @@ const RAMOS: &[(&str, &str, &[u8], &[(&str, &str)])] = &[
             ("Raise/Lower Surface...", "RAISELOWERSURFACE"),
         ],
     ),
-    ("Point Files", "", ic!("arquivo_pontos"), &[]),
+    ("Point Files", "POINTFILE", ic!("arquivo_pontos"), &[("Add...", "ADDSURFACEPOINTFILE")]),
     ("Point Clouds", "", ic!("nuvem"), &[]),
 ];
 
@@ -72,6 +72,7 @@ fn rotulo_item(it: &crate::civil::definicao::ItemDwg, k: usize) -> String {
     let base = match it.tipo.as_str() {
         "CONTOURS" => format!("Contours {}", k + 1),
         "BREAKLINES" => format!("Breaklines {}", k + 1),
+        t if t.starts_with("POINTFILE_") => format!("Point File {}", &t[10..]),
         "BOUNDARY_OUTER" => "Outer".into(),
         "BOUNDARY_HIDE" => "Hide".into(),
         "EDIT_ADDPOINT" => "Add Point".into(),
