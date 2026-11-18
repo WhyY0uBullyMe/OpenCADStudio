@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# Repositório privado: o GitHub conta os minutos (Windows vale em dobro). Um push novo cancela a compilação que
+# ainda roda do push anterior, e só a última sai.
+concurrency:
+  group: agral-windows-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   RUST_MIN_STACK: "67108864"
 
@@ -53,7 +59,7 @@ jobs:
           mkdir -p "$d/templates"
           cp packaging/agral/TEMPLATE_JP.dwt "$d/templates/"
           cp LICENSE "$d/"
-          printf 'Agral CAD (teste)\nAbra AgralCAD.exe. Aba Civil: Create Surface, Add Contours, Rebuild, Toolspace.\nComandos: CREATESURFACE, ADDSURFACECONTOURS, REBUILDSURFACE, SURFACEPROPERTIES, DELETESURFACE, ZOOMSURFACE, TOOLSPACE.\nBaseado no Open CAD Studio (GPL 3). Codigo: https://github.com/WhyY0uBullyMe/OpenCADStudio/tree/agral-cad\n' > "$d/LEIA-ME.txt"
+          printf 'Agral CAD (teste)\nAbra AgralCAD.exe. Aba Civil: superficie, alinhamento, perfil e secoes.\nBaseado no Open CAD Studio (GPL 3).\n' > "$d/LEIA-ME.txt"
 
       - name: Installer (MSI)
         # Se o instalador falhar, o ZIP portátil ainda sai.
