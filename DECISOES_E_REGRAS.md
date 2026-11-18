@@ -56,6 +56,12 @@ Referência para trocar de agente (Claude Code, Codex ou outro) sem perder o que
     `SAMPLEMORESOURCES` (janela com uma caixa por superfície) desenha outras superfícies nas seções;
     `EDITSAMPLELINES` move, inclui e apaga sample lines clicando na planta (ou digitando a estaca), com a linha
     em destaque e a nova no cursor; o Compute Materials usa as mesmas estacas.
+  - Feito (imagem de satélite, spec `docs/agral/specs/005-imagem-xyz`): `GEOLOCATION` (janela: fuso UTM SIRGAS 2000,
+    hemisfério, serviço Google Satellite, Esri World Imagery, OpenStreetMap ou link próprio), `GEOMAP` (Aerial traz a
+    imagem da área da tela, Off tira), `GEOMAPIMAGE` (dois cantos). A imagem é reprojetada pixel a pixel para UTM,
+    baixada em segundo plano (8 tiles ao mesmo tempo), gravada em JPEG na pasta `<desenho>_imagens` e posta no
+    fundo, na camada C-IMAGEM. Testado com a imagem real de Goiânia (170 tiles, sem emendas). Grupo Geolocation na
+    aba Civil.
 
 ### 18/11/2026 (Agral CAD, com o Claude)
 - **Retorno do JP sobre o teste no Windows:** "abre normal", mas "tá muito mal estruturado": foi feito um plugin no

@@ -6,6 +6,7 @@ pub mod alinhamentos;
 pub mod curvas;
 pub mod definicao;
 pub mod estilos;
+pub mod geo;
 
 use definicao::{SuperficieDwg, DICIONARIO};
 use document::objects::ObjectType;
@@ -57,4 +58,15 @@ pub fn alinhamentos(doc: &Document) -> Vec<alinhamentos::AlinhamentoDwg> {
         .collect();
     v.sort_by_key(|a| a.nome.to_lowercase());
     v
+}
+
+/// Sistema do desenho e link XYZ (spec 005), se já foi definido.
+pub fn geo(doc: &Document) -> Option<geo::GeoDwg> {
+    let h = dicionario_em(doc, &geo::DICIONARIO)?;
+    let Some(ObjectType::Dictionary(d)) = doc.objects.get(&h) else { return None };
+    let x = d.entries.iter().find(|(n, _)| n.as_str() == geo::CHAVE)?.1;
+    match doc.objects.get(&x) {
+        Some(ObjectType::XRecord(x)) => geo::GeoDwg::de_xrecord(&x.entries),
+        _ => None,
+    }
 }

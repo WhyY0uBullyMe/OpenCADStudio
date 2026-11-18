@@ -246,6 +246,36 @@ impl OpenCADStudio {
                     let _ = self.civil_editar_secoes(i, eixo, m);
                 }
             }
+            // Spec 005: GEOLOCATION <fuso> <S|N> <serviço> [link]; GEOMAP [Aerial|Off]; GEOMAPIMAGE [x,y x,y].
+            "GEOLOCATION" => {
+                let r = (|| {
+                    let fuso: u8 = args.first().and_then(|t| t.parse().ok()).ok_or("Usage: GEOLOCATION zone S|N service [link]")?;
+                    let sul = !args.get(1).is_some_and(|h| h.eq_ignore_ascii_case("N"));
+                    let servico = args.get(2).copied().unwrap_or("Google Satellite");
+                    let url = crate::civil::geo::SERVICOS
+                        .iter()
+                        .find(|s| s.0.eq_ignore_ascii_case(servico))
+                        .map(|s| s.1.to_string())
+                        .or_else(|| args.get(3).map(|u| u.to_string()))
+                        .or_else(|| servico.contains("{x}").then(|| servico.to_string()))
+                        .ok_or("Type the custom tile link.")?;
+                    self.civil_geolocalizar(i, fuso, sul, &url)
+                })();
+                self.civil_al_resultado(r);
+            }
+            "GEOMAP" => {
+                let off = args.first().is_some_and(|a| a.to_ascii_uppercase().starts_with('O'));
+                let r = if off { self.civil_geomap_off(i) } else { self.civil_geomap(i, self.civil_area_da_tela(i)) };
+                self.civil_al_resultado(r);
+            }
+            "GEOMAPIMAGE" => match (args.first().and_then(|t| ponto2(t)), args.get(1).and_then(|t| ponto2(t))) {
+                (Some(a), Some(b)) => {
+                    let r = self.civil_geomap(i, [a[0], a[1], b[0], b[1]]);
+                    self.civil_al_resultado(r);
+                }
+                (Some(a), None) => self.civil_pedir_ponto(i, "GEOMAPIMAGE", "Specify the opposite corner:", format!("GEOMAPIMAGE {},{}", a[0], a[1])),
+                _ => self.civil_pedir_ponto(i, "GEOMAPIMAGE", "Specify the first corner of the imagery area:", "GEOMAPIMAGE".into()),
+            },
             // Traçado por PIs (Civil 3D: Alignment Creation Tools).
             "CREATEALIGNMENTLAYOUT" => {
                 let nome = args.first().map(|s| s.to_string()).unwrap_or_else(|| self.civil_proximo_eixo(i));

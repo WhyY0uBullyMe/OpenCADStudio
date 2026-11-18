@@ -785,3 +785,73 @@ fn abas_por_selecao_fontes_e_sample_lines() {
     let a = app.civil_al_ler(i, "EIXO2").unwrap();
     assert_eq!(app.civil_materiais_linhas(i, &a).unwrap().len(), 5);
 }
+
+/// Spec 005 (imagem XYZ), sem rede: fuso pela janela, plano do GEOMAP, imagem de tiles falsos no lugar UTM certo,
+/// no fundo e na camada C-IMAGEM; GEOMAP OFF tira.
+#[test]
+fn imagem_de_satelite_sem_rede() {
+    use crate::ui::window::civil_dialog::{CivilMsg, Modo};
+    let dir = std::env::temp_dir().join(format!("agral_geo_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    app.tabs[i].current_path = Some(dir.join("projeto.dwg"));
+    command(&mut app, "GEOMAP");
+    assert!(app.civil_geo(i).is_none(), "sem fuso não baixa nada");
+    // Janela: zona 22, S, Google; troca para Esri e dá OK.
+    command(&mut app, "GEOLOCATION");
+    match &app.civil_dialog.as_ref().unwrap().modo {
+        Modo::Formulario(f) => assert_eq!(f.campos[0].valor, "22"),
+        _ => panic!("formulário"),
+    }
+    let _ = app.update(Message::Civil(CivilMsg::Campo(2, "Esri World Imagery".into())));
+    let _ = app.update(Message::Civil(CivilMsg::Ok));
+    let g = app.civil_geo(i).expect("fuso gravado");
+    assert_eq!((g.fuso, g.sul), (22, true));
+    assert!(g.url.contains("arcgisonline"));
+    // Área de 600 x 400 m em Goiânia: o plano cabe nos limites.
+    let (ep, np) = agral_civil_motor::geo::para_utm(-16.6869, -49.2648, g.fuso());
+    let area = [ep - 300.0, np - 200.0, ep + 300.0, np + 200.0];
+    assert!(app.civil_geomap(i, area).unwrap().contains("Imagery planned"));
+    // Montagem com tiles falsos e inserção.
+    let plano = agral_civil_motor::geo::planejar(area[0], area[1], area[2], area[3], g.fuso(), 512, 64, 17).unwrap();
+    let png = crate::app::civil_geo::imagem_da_area(area, &g, &plano, |_, _| Some([10u8, 120, 40, 255].iter().copied().cycle().take(256 * 256 * 4).collect())).unwrap();
+    let linha = app.tabs[i].scene.add_entities(vec![EntityType::Line(document::entities::Line::from_points(
+        document::types::Vector3::new(area[0], area[1], 0.0),
+        document::types::Vector3::new(area[2], area[3], 0.0),
+    ))])[0];
+    let msg = app.civil_inserir_imagem(i, area, &png).unwrap();
+    assert!(msg.contains("projeto_imagens"), "{msg}");
+    let img = app.tabs[i]
+        .scene
+        .document
+        .entities()
+        .find_map(|e| match e {
+            EntityType::RasterImage(r) => Some(r.clone()),
+            _ => None,
+        })
+        .expect("imagem no desenho");
+    assert_eq!(img.common.layer, "C-IMAGEM");
+    assert!((img.insertion_point.x - area[0]).abs() < 1e-6 && (img.insertion_point.y - area[1]).abs() < 1e-6);
+    assert!(std::path::Path::new(&img.file_path).exists());
+    // No fundo: desenhada antes da linha que já existia.
+    let bloco = app.tabs[i].scene.current_layout_block_handle_pub();
+    let mapa: std::collections::HashMap<u64, u64> = app.tabs[i]
+        .scene
+        .document
+        .objects
+        .values()
+        .find_map(|o| match o {
+            document::objects::ObjectType::SortEntitiesTable(t) if t.block_owner_handle == bloco => {
+                Some(t.entries().map(|e| (e.entity_handle.value(), e.sort_handle.value())).collect())
+            }
+            _ => None,
+        })
+        .unwrap_or_default();
+    let ordem = mapa.get(&img.common.handle.value()).copied().unwrap_or(img.common.handle.value());
+    let da_linha = mapa.get(&linha.value()).copied().unwrap_or(linha.value());
+    assert!(ordem < da_linha, "imagem atrás ({ordem} x {da_linha})");
+    command(&mut app, "GEOMAP OFF");
+    assert!(!app.tabs[i].scene.document.entities().any(|e| matches!(e, EntityType::RasterImage(_))));
+}

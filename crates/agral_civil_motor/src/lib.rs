@@ -8,6 +8,7 @@ pub mod correcao;
 pub mod corredor;
 pub mod diagnostico;
 pub mod emenda;
+pub mod geo;
 pub mod landxml;
 pub mod materiais;
 pub mod pontos;

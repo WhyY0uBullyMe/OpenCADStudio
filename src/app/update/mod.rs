@@ -14497,6 +14497,7 @@ impl OpenCADStudio {
             Message::Civil(msg) => self.on_civil_dialog(msg),
             Message::CivilCotaRelogio => self.civil_cota_relogio(),
             Message::CivilMontagemPronta(m) => self.civil_montagem_pronta(m),
+            Message::CivilImagemPronta(m) => self.civil_imagem_pronta(m),
             Message::CivilTinsProntos(t) => {
                 self.civil_tins_prontos(t);
                 Task::none()

@@ -113,6 +113,7 @@ pub(crate) mod civil;
 pub(crate) mod civil_alinhamento;
 pub(crate) mod civil_materiais;
 pub(crate) mod civil_formularios;
+pub(crate) mod civil_geo;
 pub(crate) mod civil_viewer;
 mod rename_dialog;
 mod saved_filters;
@@ -4210,6 +4211,8 @@ pub enum Message {
     CivilCotaRelogio,
     /// A montagem da superfície em segundo plano terminou.
     CivilMontagemPronta(crate::app::civil::MontagemPronta),
+    /// Agral CAD: a imagem de satélite baixada (spec 005).
+    CivilImagemPronta(crate::app::civil_geo::ImagemPronta),
     Purge(crate::ui::window::purge::PurgeMsg),
     DwgProps(crate::ui::window::drawing_properties::DwgPropsMsg),
     GeographicLocation(crate::ui::window::geographic_location::GeographicLocationMsg),

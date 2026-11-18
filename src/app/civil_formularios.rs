@@ -18,6 +18,7 @@ pub(crate) const FORMULARIOS: &[&str] = &[
     "ALIGNMENTSTATIONS",
     "EXTRACTSURFACEOBJECTS",
     "SAMPLEMORESOURCES",
+    "GEOLOCATION",
 ];
 
 fn n(v: f64) -> String {
@@ -41,6 +42,26 @@ impl OpenCADStudio {
                 ],
                 ponto: None,
                 nota: "All = major and minor contours and the border. The copies are plain polylines; the surface does not change.".into(),
+            });
+        }
+        if verbo == "GEOLOCATION" {
+            let g = self.civil_geo(i).unwrap_or_default();
+            let servico = crate::civil::geo::SERVICOS.iter().find(|s| s.1 == g.url).map_or("Custom link", |s| s.0);
+            let mut nomes: Vec<String> = crate::civil::geo::SERVICOS.iter().map(|s| s.0.to_string()).collect();
+            nomes.push("Custom link".into());
+            return Some(Formulario {
+                titulo: "Geographic Location".into(),
+                verbo: "GEOLOCATION".into(),
+                campos: vec![
+                    Campo::texto("UTM zone (SIRGAS 2000)", g.fuso),
+                    Campo::lista("Hemisphere", if g.sul { "S" } else { "N" }, vec!["S".into(), "N".into()]),
+                    Campo::lista("Map service", servico, nomes),
+                    Campo::texto("Custom tile link ({x} {y} {z})", &g.url),
+                ],
+                ponto: None,
+                nota: "Goiania and most of Goias: zone 22 S; Brasilia: 23 S. The drawing coordinates must be UTM in this \
+                       zone. Google imagery by XYZ link is outside Google's terms of use (internal use only)."
+                    .into(),
             });
         }
         let eixos: Vec<String> = self.civil_alinhamentos(i).into_iter().map(|a| a.nome).collect();

@@ -141,6 +141,32 @@ impl CadModule for CivilModule {
                     ],
                 },
                 RibbonGroup {
+                    title: "Geolocation",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta(
+                            "GEOLOCATION",
+                            "Geographic\nLocation",
+                            include_bytes!("../../../assets/icons/civil_geoloc.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "GEOMAP",
+                            "Map\nAerial",
+                            include_bytes!("../../../assets/icons/civil_geomap.svg"),
+                        )),
+                        RibbonItem::Tool(ToolDef {
+                            id: "GEOMAP_OFF",
+                            label: "Map Off",
+                            icon: IconKind::Svg(include_bytes!("../../../assets/icons/civil_geomapoff.svg")),
+                            event: ModuleEvent::Command("GEOMAP OFF".to_string()),
+                        }),
+                        RibbonItem::Tool(ferramenta(
+                            "GEOMAPIMAGE",
+                            "Capture Area",
+                            include_bytes!("../../../assets/icons/civil_geomapimage.svg"),
+                        )),
+                    ],
+                },
+                RibbonGroup {
                     title: "Palettes",
                     tools: vec![RibbonItem::LargeTool(ferramenta(
                         "TOOLSPACE",
