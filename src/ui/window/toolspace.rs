@@ -259,6 +259,32 @@ fn linhas_dos_alinhamentos<'a>(alinhamentos: Vec<crate::civil::alinhamentos::Ali
                 .view(),
             vec![("Create / Move...".into(), format!("CREATEPROFILEVIEW {n}"))],
         ));
+        let asm = match &a.assembly {
+            Some(m) => format!(
+                "Assembly: crest {} m, {}% to upstream ({}), {}:1 / {}:1, berm {} m every {} m",
+                m.crista,
+                m.decl_crista * 100.0,
+                if m.montante_esquerda { "L" } else { "R" },
+                m.talude_montante,
+                m.talude_jusante,
+                m.largura_berma,
+                m.altura_berma
+            ),
+            None => "Assembly (none)".to_string(),
+        };
+        col = col.push(com_menu(
+            kit::tree_row(asm).depth(3).caret_room().icon(icone(ic!("assembly"), a.assembly.is_none())).muted(a.assembly.is_none()).view(),
+            vec![("Edit...".into(), "CREATEASSEMBLY".into())],
+        ));
+        let corr = match (a.corredor, a.volumes) {
+            (Some(p), Some((va, vc))) => format!("Corridor (every {p} m): fill {va:.0} m3, cut {vc:.0} m3"),
+            (Some(p), None) => format!("Corridor (every {p} m)"),
+            _ => "Corridor (none)".to_string(),
+        };
+        col = col.push(com_menu(
+            kit::tree_row(corr).depth(3).caret_room().icon(icone(ic!("corredor"), a.corredor.is_none())).muted(a.corredor.is_none()).view(),
+            vec![("Create / Rebuild...".into(), format!("CREATECORRIDOR {n}")), ("Rebuild".into(), format!("REBUILDCORRIDOR {n}"))],
+        ));
         let sec = match &a.secoes {
             Some(s) => format!("Sections (every {} m, {} + {} m)", s.intervalo, s.esquerda, s.direita),
             None => "Sections (none)".to_string(),

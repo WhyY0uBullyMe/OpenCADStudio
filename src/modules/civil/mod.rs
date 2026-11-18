@@ -96,6 +96,21 @@ impl CadModule for CivilModule {
                     ],
                 },
                 RibbonGroup {
+                    title: "Corridor",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta(
+                            "CREATEASSEMBLY",
+                            "Dam\nAssembly",
+                            include_bytes!("../../../assets/icons/civil_assembly.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "CREATECORRIDOR",
+                            "Create\nCorridor",
+                            include_bytes!("../../../assets/icons/civil_corridor.svg"),
+                        )),
+                    ],
+                },
+                RibbonGroup {
                     title: "Palettes",
                     tools: vec![RibbonItem::LargeTool(ferramenta(
                         "TOOLSPACE",
