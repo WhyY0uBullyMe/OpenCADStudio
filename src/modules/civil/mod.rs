@@ -55,3 +55,60 @@ impl CadModule for CivilModule {
         })
     }
 }
+
+/// Aba contextual TIN Surface: aparece com uma superfície selecionada (como no Civil 3D).
+pub mod pegar_ponto;
+
+pub struct TinSurfaceModule;
+
+impl CadModule for TinSurfaceModule {
+    fn id(&self) -> &'static str {
+        "tin_surface"
+    }
+    fn title(&self) -> &'static str {
+        "TIN Surface"
+    }
+
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
+        static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+        let sup: &'static [u8] = include_bytes!("../../../assets/icons/civil_surface.svg");
+        let cur: &'static [u8] = include_bytes!("../../../assets/icons/civil_contours.svg");
+        let reb: &'static [u8] = include_bytes!("../../../assets/icons/civil_rebuild.svg");
+        let tsp: &'static [u8] = include_bytes!("../../../assets/icons/civil_toolspace.svg");
+        GROUPS.get_or_init(|| {
+            vec![
+                RibbonGroup {
+                    title: "Modify",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("SURFACEPROPERTIES", "Surface\nProperties", sup)),
+                        RibbonItem::LargeTool(ferramenta("REBUILDSURFACE", "Rebuild", reb)),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Add Data",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("ADDSURFACECONTOURS", "Add\nContours", cur)),
+                        RibbonItem::LargeTool(ferramenta("ADDSURFACEBOUNDARIES", "Add\nBoundaries", sup)),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Edit Surface",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("ADDSURFACEPOINT", "Add\nPoint", sup)),
+                        RibbonItem::LargeTool(ferramenta("DELETESURFACEPOINT", "Delete\nPoint", sup)),
+                        RibbonItem::LargeTool(ferramenta("DELETESURFACELINE", "Delete\nLine", sup)),
+                        RibbonItem::LargeTool(ferramenta("RAISELOWERSURFACE", "Raise/\nLower", reb)),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Surface Tools",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("EXTRACTSURFACEOBJECTS", "Extract\nObjects", cur)),
+                        RibbonItem::LargeTool(ferramenta("ZOOMSURFACE", "Zoom\nto", sup)),
+                        RibbonItem::LargeTool(ferramenta("TOOLSPACE", "Toolspace", tsp)),
+                    ],
+                },
+            ]
+        })
+    }
+}

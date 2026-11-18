@@ -17,6 +17,22 @@ use std::time::Instant;
 pub(crate) const APP: &str = "AGRAL_CIVIL";
 pub(crate) const CAMADA_DIAGNOSTICO: &str = "AGRAL-DIAG-CRUZAMENTO";
 pub(crate) const CAMADA_EMENDAS: &str = "AGRAL-DIAG-EMENDA";
+/// Camada da inserção da superfície (a do Civil 3D por padrão); os componentes ficam nas camadas do estilo.
+pub(crate) const CAMADA_SUPERFICIE: &str = "C-TOPO";
+
+/// Nome do bloco que guarda o desenho da superfície.
+pub(crate) fn nome_do_bloco(superficie: &str) -> String {
+    format!("AGRAL_SUPERFICIE_{superficie}")
+}
+
+/// Tira do desenho o que a última montagem da superfície desenhou: a inserção, o bloco e as marcas.
+fn apagar_desenho(scene: &mut crate::scene::Scene, s: &SuperficieDwg) {
+    let bloco = nome_do_bloco(&s.nome);
+    scene.erase_entities(&s.desenho);
+    if scene.document.block_records.get(&bloco).is_some() {
+        crate::scene::block_service::erase(scene, &bloco);
+    }
+}
 const VERTICES_POR_MALHA: usize = 100_000;
 
 pub(crate) fn nome_valido(nome: &str) -> bool {
@@ -50,6 +66,9 @@ impl OpenCADStudio {
 
     /// Nome da superfície: o dado, ou a única que existe.
     pub(crate) fn civil_escolher(&self, i: usize, nome: Option<&str>) -> Result<String, String> {
+        // Sem nome: a superfície selecionada no desenho, como nos comandos da aba TIN Surface.
+        let selecionada = if nome.is_none() { self.civil_superficie_selecionada(i) } else { None };
+        let nome = nome.or(selecionada.as_deref());
         let todas = self.civil_superficies(i);
         let lista = || if todas.is_empty() { "(none)".to_string() } else { todas.join(", ") };
         if let Some(n) = nome {
@@ -112,10 +131,31 @@ impl OpenCADStudio {
         Ok(format!("{n} contours added to '{nome}'. {msg}"))
     }
 
+    /// Acrescenta um limite ou um edit à definição e refaz. Limite: só polilinhas fechadas.
+    pub(crate) fn civil_acrescentar_item(&mut self, i: usize, nome: &str, mut item: ItemDwg) -> Result<String, String> {
+        if item.tipo.starts_with("BOUNDARY") {
+            let doc = &self.tabs[i].scene.document;
+            item.fontes.retain(|h| {
+                doc.get_entity(*h).and_then(curvas::pontos).is_some_and(|p| p.len() > 3 && p.first() == p.last())
+            });
+            if item.fontes.is_empty() {
+                return Err("Select closed polylines for the boundary.".into());
+            }
+        }
+        let mut s = self.civil_ler(i, nome)?;
+        let rotulo = item.tipo.clone();
+        s.itens.push(item);
+        s.desatualizada = true;
+        self.push_undo_snapshot(i, "SURFACEDEFINITION");
+        self.civil_gravar(i, &s, false)?;
+        let msg = self.civil_refazer(i, nome)?;
+        Ok(format!("{rotulo} added to '{nome}'. {msg}"))
+    }
+
     pub(crate) fn civil_apagar(&mut self, i: usize, nome: &str) -> Result<String, String> {
         let s = self.civil_ler(i, nome)?;
         self.push_undo_snapshot(i, "DELETESURFACE");
-        self.tabs[i].scene.erase_entities(&s.desenho);
+        apagar_desenho(&mut self.tabs[i].scene, &s);
         let mut host = crate::app::plugin_host::HostSession::new(self, i);
         host.delete_xrecord(&DICIONARIO, nome)?;
         self.tabs[i].dirty = true;
@@ -148,6 +188,8 @@ impl OpenCADStudio {
         s.descricao = descricao.trim().to_string();
         s.comprimento_maximo = comprimento_maximo;
         if renomear {
+            apagar_desenho(&mut self.tabs[i].scene, &s);
+            s.desenho.clear();
             let mut host = crate::app::plugin_host::HostSession::new(self, i);
             host.delete_xrecord(&DICIONARIO, nome)?;
             s.nome = novo_nome.to_string();
@@ -187,6 +229,39 @@ impl OpenCADStudio {
         self.civil_refazer(i, nome)
     }
 
+    /// `EXTRACTSURFACEOBJECTS`: copia para o desenho, como entidades comuns, o que a superfície mostra (curvas
+    /// mestras, intermediárias, borda, triângulos), como o Extract Objects do Civil 3D. A superfície não muda.
+    pub(crate) fn civil_extrair(&mut self, i: usize, nome: &str, camadas: &[&str]) -> Result<String, String> {
+        let s = self.civil_ler(i, nome)?;
+        let bloco = nome_do_bloco(&s.nome);
+        let doc = &self.tabs[i].scene.document;
+        let Some(rec) = doc.block_records.get(&bloco) else {
+            return Err(format!("Surface '{}' has nothing drawn; rebuild it first.", s.nome));
+        };
+        let copias: Vec<EntityType> = rec
+            .entity_handles
+            .iter()
+            .filter_map(|h| doc.get_entity(*h))
+            .filter(|e| camadas.iter().any(|c| e.common().layer.eq_ignore_ascii_case(c)))
+            .map(|e| {
+                let mut c = e.clone();
+                let cm = c.common_mut();
+                cm.handle = Handle::NULL;
+                cm.owner_handle = Handle::NULL;
+                cm.extended_data = Default::default();
+                c
+            })
+            .collect();
+        if copias.is_empty() {
+            return Err("Nothing of that kind in the surface style.".into());
+        }
+        self.push_undo_snapshot(i, "EXTRACTSURFACEOBJECTS");
+        let n = copias.len();
+        self.tabs[i].scene.add_entities(copias);
+        self.tabs[i].dirty = true;
+        Ok(format!("{n} objects extracted from surface '{}' (layers: {}).", s.nome, camadas.join(", ")))
+    }
+
     /// `REBUILDSURFACE`: monta o TIN a partir da lista de definição e troca o desenho antigo pelo novo.
     pub(crate) fn civil_refazer(&mut self, i: usize, nome: &str) -> Result<String, String> {
         let t0 = Instant::now();
@@ -196,6 +271,18 @@ impl OpenCADStudio {
         let mut cruzamentos_achados: Vec<[f64; 3]> = Vec::new();
         let mut ligacoes: Vec<[[f64; 3]; 2]> = Vec::new();
         let (mut corrigidos, mut emendas, mut sumidas) = (0usize, 0usize, 0usize);
+        // Limites (polilinhas fechadas): o externo também serve de borda para a emenda não juntar pontas da borda.
+        let mut externos: Vec<Vec<[f64; 3]>> = Vec::new();
+        let mut furos: Vec<Vec<[f64; 3]>> = Vec::new();
+        for it in s.itens.iter().filter(|it| it.ligado && it.tipo.starts_with("BOUNDARY")) {
+            for h in &it.fontes {
+                match doc.get_entity(*h).and_then(curvas::pontos) {
+                    Some(p) if it.tipo == "BOUNDARY_HIDE" => furos.push(p),
+                    Some(p) => externos.push(p),
+                    None => sumidas += 1,
+                }
+            }
+        }
         for it in s.itens.iter().filter(|it| it.ligado && it.tipo == "CONTOURS") {
             let mut linhas: Vec<Vec<[f64; 3]>> = Vec::new();
             for h in &it.fontes {
@@ -211,7 +298,7 @@ impl OpenCADStudio {
                 corrigidos += diag.cruzamentos.len();
             }
             if it.emendar > 0.0 {
-                let e = emendar_pedacos(&linhas, &OpcoesEmenda { folga_maxima: it.emendar, limite: None });
+                let e = emendar_pedacos(&linhas, &OpcoesEmenda { folga_maxima: it.emendar, limite: externos.first().cloned() });
                 emendas += e.emendas;
                 ligacoes.extend(e.ligacoes);
                 linhas = e.curvas;
@@ -219,20 +306,61 @@ impl OpenCADStudio {
             todas.extend(linhas);
         }
         let restantes = diagnosticar_curvas(&todas).cruzamentos.len();
+        let edits: Vec<&ItemDwg> = s.itens.iter().filter(|it| it.ligado && it.tipo.starts_with("EDIT_")).collect();
+        let mut pontos_novos: Vec<[f64; 3]> = Vec::new();
+        for it in &edits {
+            match it.tipo.as_str() {
+                "EDIT_ADDPOINT" => pontos_novos.extend(it.pontos.iter().copied()),
+                // Delete Point: tira o vértice mais perto do clique (até 2 m), das curvas e dos pontos acrescentados.
+                "EDIT_DELETEPOINT" => {
+                    for p in &it.pontos {
+                        apagar_vertice_perto(&mut todas, &mut pontos_novos, *p, 2.0);
+                    }
+                }
+                _ => {}
+            }
+        }
         let t_ler = t0.elapsed();
         let mut sup = Superficie::nova(&s.nome, &s.descricao);
         sup.opcoes.comprimento_maximo = s.comprimento_maximo;
         if !todas.is_empty() {
             sup.acrescentar(ItemDefinicao::curvas("contours", todas));
         }
-        let montagem = sup.montar();
+        if !pontos_novos.is_empty() {
+            sup.acrescentar(ItemDefinicao::pontos("edits", pontos_novos));
+        }
+        for l in &externos {
+            sup.acrescentar(ItemDefinicao::limite_externo("boundary", l.clone()));
+        }
+        for f in &furos {
+            sup.acrescentar(ItemDefinicao::furo("hide", f.clone()));
+        }
+        let mut montagem = sup.montar();
+        // Edits que mexem no TIN montado, na ordem da definição.
+        for it in &edits {
+            match it.tipo.as_str() {
+                "EDIT_DELETELINE" => {
+                    for p in &it.pontos {
+                        montagem.tin = apagar_aresta_perto(&montagem.tin, *p);
+                    }
+                }
+                "EDIT_RAISELOWER" => {
+                    let mut v = montagem.tin.vertices.clone();
+                    v.iter_mut().for_each(|q| q[2] += it.valor);
+                    montagem.tin = Tin::novo(v, montagem.tin.triangulos.clone());
+                }
+                _ => {}
+            }
+        }
         let t_montar = t0.elapsed();
 
         let estilo = crate::civil::estilos::estilo(&s.estilo);
-        let mut novas = desenho_do_estilo(&montagem.tin, estilo, &s.nome);
+        // A superfície é um objeto só, como no Civil 3D (pedido do JP, 18/11): o desenho do estilo vai num bloco
+        // e entra no desenho como uma inserção. Dentro do bloco cada componente fica na sua camada do template.
+        let conteudo = desenho_do_estilo(&montagem.tin, estilo, &s.nome);
         let scene = &mut self.tabs[i].scene;
-        scene.erase_entities(&s.desenho);
-        for camada in novas.iter().map(|e| e.common().layer.clone()).collect::<std::collections::BTreeSet<_>>() {
+        apagar_desenho(scene, &s);
+        for camada in conteudo.iter().map(|e| e.common().layer.clone()).collect::<std::collections::BTreeSet<_>>() {
             let nova = !scene.document.layers.contains(&camada);
             scene.ensure_layer(&camada);
             // Camada que o template da Agral define: criada com a cor e a espessura dele.
@@ -244,6 +372,17 @@ impl OpenCADStudio {
                     }
                 }
             }
+        }
+        let bloco = nome_do_bloco(&s.nome);
+        scene.ensure_layer(CAMADA_SUPERFICIE);
+        let mut novas: Vec<EntityType> = Vec::new();
+        if !conteudo.is_empty() {
+            scene.define_block_raw(&bloco, Vector3::new(0.0, 0.0, 0.0), conteudo);
+            let mut ins = document::entities::Insert::new(bloco.clone(), Vector3::new(0.0, 0.0, 0.0));
+            ins.common.layer = CAMADA_SUPERFICIE.into();
+            let mut e = EntityType::Insert(ins);
+            marcar(&mut e, &format!("SURFACE:{}", s.nome));
+            novas.push(e);
         }
         if !cruzamentos_achados.is_empty() {
             scene.ensure_layer(CAMADA_DIAGNOSTICO);
@@ -389,4 +528,65 @@ fn malhas(tin: &Tin, camada: &str, nome: &str) -> Vec<EntityType> {
     }
     fechar(&mut m, &mut mapa, &mut usados, &mut saida);
     saida
+}
+
+fn apagar_vertice_perto(curvas: &mut Vec<Vec<[f64; 3]>>, pontos: &mut Vec<[f64; 3]>, alvo: [f64; 3], raio: f64) {
+    let d = |p: &[f64; 3]| ((p[0] - alvo[0]).powi(2) + (p[1] - alvo[1]).powi(2)).sqrt();
+    let mut melhor: Option<(f64, usize, usize)> = None;
+    for (k, c) in curvas.iter().enumerate() {
+        for (j, p) in c.iter().enumerate() {
+            if d(p) <= raio && melhor.is_none_or(|m| d(p) < m.0) {
+                melhor = Some((d(p), k, j));
+            }
+        }
+    }
+    let melhor_ponto = pontos.iter().enumerate().filter(|(_, p)| d(p) <= raio).min_by(|a, b| d(a.1).partial_cmp(&d(b.1)).unwrap());
+    match (melhor, melhor_ponto) {
+        (Some(m), Some((j, p))) if d(p) < m.0 => {
+            pontos.remove(j);
+        }
+        (_, Some((j, _))) if melhor.is_none() => {
+            pontos.remove(j);
+        }
+        (Some((_, k, j)), _) => {
+            let c = &mut curvas[k];
+            let fechada = c.len() > 2 && c.first() == c.last();
+            c.remove(j);
+            if fechada && (j == 0 || j == c.len()) && !c.is_empty() {
+                let primeiro = c[0];
+                if let Some(u) = c.last_mut() {
+                    *u = primeiro;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Delete Line: tira os triângulos da aresta mais perto do ponto clicado.
+fn apagar_aresta_perto(tin: &Tin, p: [f64; 3]) -> Tin {
+    let dist = |a: [f64; 3], b: [f64; 3]| {
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let l2 = dx * dx + dy * dy;
+        let t = if l2 > 0.0 { (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0) } else { 0.0 };
+        ((p[0] - a[0] - t * dx).powi(2) + (p[1] - a[1] - t * dy).powi(2)).sqrt()
+    };
+    let mut melhor: Option<(f64, (u32, u32))> = None;
+    for t in &tin.triangulos {
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            let d = dist(tin.vertices[a as usize], tin.vertices[b as usize]);
+            if melhor.is_none_or(|m| d < m.0) {
+                melhor = Some((d, (a.min(b), a.max(b))));
+            }
+        }
+    }
+    let Some((_, aresta)) = melhor else { return tin.clone() };
+    let tri: Vec<[u32; 3]> = tin
+        .triangulos
+        .iter()
+        .copied()
+        .filter(|t| !(0..3).any(|k| (t[k].min(t[(k + 1) % 3]), t[k].max(t[(k + 1) % 3])) == aresta))
+        .collect();
+    Tin::novo(tin.vertices.clone(), tri)
 }

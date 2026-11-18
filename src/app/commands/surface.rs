@@ -10,8 +10,23 @@ use crate::civil::definicao::ItemDwg;
 use crate::ui::window::civil_dialog::{CivilMsg, Modo, State};
 use iced::Task;
 
-/// Comando interno que a seleção na tela dispara de volta (o usuário não digita).
+/// Comandos internos que a seleção ou o clique na tela disparam de volta (o usuário não digita).
 const APLICAR_CURVAS: &str = "_ADDCONTOURDATA";
+const APLICAR_LIMITE: &str = "_ADDBOUNDARYDATA";
+const APLICAR_EDIT: &str = "_SURFACEEDIT";
+
+fn e_polilinha_fechada(e: &document::EntityType) -> bool {
+    curvas::pontos(e).is_some_and(|p| p.len() > 3 && p.first() == p.last())
+}
+
+fn ler_ponto(t: &str) -> Option<[f64; 3]> {
+    let v: Vec<f64> = t.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    match v.len() {
+        2 => Some([v[0], v[1], 0.0]),
+        3 => Some([v[0], v[1], v[2]]),
+        _ => None,
+    }
+}
 
 fn e_polilinha(e: &document::EntityType) -> bool {
     curvas::pontos(e).is_some()
@@ -30,6 +45,20 @@ impl OpenCADStudio {
         self.civil_dialog = Some(st);
         self.active_modal = Some(crate::app::ModalKind::Civil);
         self.reset_modal_geometry();
+    }
+
+    /// Nome da superfície selecionada no desenho (a inserção marcada com SURFACE:<nome>), se houver uma.
+    pub(crate) fn civil_superficie_selecionada(&self, i: usize) -> Option<String> {
+        let scene = &self.tabs[i].scene;
+        scene.selected_handles_in_order().into_iter().find_map(|h| {
+            let e = scene.document.get_entity(h)?;
+            e.common().extended_data.records().iter().find(|r| r.application_name == crate::app::civil::APP).and_then(|r| {
+                r.values.iter().find_map(|v| match v {
+                    document::xdata::XDataValue::String(t) => t.strip_prefix("SURFACE:").map(str::to_string),
+                    _ => None,
+                })
+            })
+        })
     }
 
     pub(crate) fn civil_abrir_toolspace(&mut self) {
@@ -126,6 +155,99 @@ impl OpenCADStudio {
                 self.refresh_properties();
                 self.civil_resultado(r);
             }
+            "EXTRACTSURFACEOBJECTS" => {
+                // EXTRACTSURFACEOBJECTS [superfície] [MAJOR] [MINOR] [BORDER] [TRIANGLES]; sem tipos = curvas e borda.
+                use crate::civil::estilos::{CAMADA_BORDA, CAMADA_INTERMEDIARIA, CAMADA_MESTRA, CAMADA_TRIANGULOS};
+                let mut nome = None;
+                let mut camadas: Vec<&str> = Vec::new();
+                for a in &args {
+                    match a.to_ascii_uppercase().as_str() {
+                        "MAJOR" => camadas.push(CAMADA_MESTRA.0),
+                        "MINOR" => camadas.push(CAMADA_INTERMEDIARIA.0),
+                        "BORDER" => camadas.push(CAMADA_BORDA.0),
+                        "TRIANGLES" => camadas.push(CAMADA_TRIANGULOS.0),
+                        _ => nome = Some(*a),
+                    }
+                }
+                if camadas.is_empty() {
+                    camadas = vec![CAMADA_MESTRA.0, CAMADA_INTERMEDIARIA.0, CAMADA_BORDA.0];
+                }
+                let nome = nome.map(str::to_string).or_else(|| self.civil_superficie_selecionada(i));
+                let r = self.civil_escolher(i, nome.as_deref()).and_then(|n| self.civil_extrair(i, &n, &camadas));
+                self.civil_resultado(r);
+            }
+            // Script: ADDSURFACEBOUNDARIES <superfície> OUTER|HIDE <camada> (polilinhas fechadas da camada)
+            "ADDSURFACEBOUNDARIES" if args.len() >= 3 => {
+                let camada = args[2];
+                let fontes: Vec<_> = self.tabs[i]
+                    .scene
+                    .document
+                    .entities()
+                    .filter(|e| e.common().layer.eq_ignore_ascii_case(camada) && e_polilinha_fechada(e))
+                    .map(|e| e.common().handle)
+                    .collect();
+                let tipo = if args[1].eq_ignore_ascii_case("HIDE") { "BOUNDARY_HIDE" } else { "BOUNDARY_OUTER" };
+                let mut item = ItemDwg::novo(tipo, camada);
+                item.fontes = fontes;
+                let r = self.civil_escolher(i, Some(args[0])).and_then(|n| self.civil_acrescentar_item(i, &n, item));
+                self.civil_resultado(r);
+            }
+            "ADDSURFACEBOUNDARIES" => match self.civil_escolher(i, args.first().copied()) {
+                Ok(n) => {
+                    let mut st = State::novo(Modo::Limite(n.clone()));
+                    st.superficie = Some(n);
+                    self.civil_abrir(st);
+                }
+                Err(e) => self.command_line.push_error(&e),
+            },
+            APLICAR_LIMITE => {
+                // _ADDBOUNDARYDATA <superfície> OUTER|HIDE [descrição]
+                let (Some(nome), Some(tipo)) = (args.first(), args.get(1)) else { return Some(Task::none()) };
+                let mut item = ItemDwg::novo(
+                    if tipo.eq_ignore_ascii_case("HIDE") { "BOUNDARY_HIDE" } else { "BOUNDARY_OUTER" },
+                    &args[2..].join(" "),
+                );
+                item.fontes = self.tabs[i].scene.selected_handles_in_order();
+                let r = self.civil_acrescentar_item(i, nome, item);
+                self.tabs[i].scene.deselect_all();
+                self.refresh_properties();
+                self.civil_resultado(r);
+            }
+            "ADDSURFACEPOINT" | "DELETESURFACEPOINT" | "DELETESURFACELINE" => {
+                match self.civil_escolher(i, args.first().copied()) {
+                    Ok(n) => {
+                        let (nome_cmd, texto, tipo, cota): (&'static str, &str, &str, bool) = match verbo.as_str() {
+                            "ADDSURFACEPOINT" => ("ADDSURFACEPOINT", "Specify a location for the new point:", "EDIT_ADDPOINT", true),
+                            "DELETESURFACEPOINT" => ("DELETESURFACEPOINT", "Select the point to delete:", "EDIT_DELETEPOINT", false),
+                            _ => ("DELETESURFACELINE", "Select the triangle edge to delete:", "EDIT_DELETELINE", false),
+                        };
+                        let c = crate::modules::civil::pegar_ponto::PegarPontoCommand::new(nome_cmd, texto, format!("{APLICAR_EDIT} {n} {tipo}"), cota);
+                        use crate::command::CadCommand;
+                        self.command_line.push_info(&c.prompt());
+                        self.tabs[i].active_cmd = Some(Box::new(c));
+                    }
+                    Err(e) => self.command_line.push_error(&e),
+                }
+            }
+            "RAISELOWERSURFACE" => match self.civil_escolher(i, args.first().copied()) {
+                Ok(n) => self.civil_abrir(State::novo(Modo::Elevar(n))),
+                Err(e) => self.command_line.push_error(&e),
+            },
+            APLICAR_EDIT => {
+                // _SURFACEEDIT <superfície> <EDIT_...> <x,y[,z]> | <valor>
+                let (Some(nome), Some(tipo), Some(arg)) = (args.first(), args.get(1), args.get(2)) else { return Some(Task::none()) };
+                let mut item = ItemDwg::novo(tipo, "");
+                if *tipo == "EDIT_RAISELOWER" {
+                    item.valor = arg.parse().unwrap_or(0.0);
+                } else if let Some(p) = ler_ponto(arg) {
+                    item.pontos.push(p);
+                } else {
+                    self.command_line.push_error("Invalid point.");
+                    return Some(Task::none());
+                }
+                let r = self.civil_acrescentar_item(i, nome, item);
+                self.civil_resultado(r);
+            }
             "REBUILDSURFACE" => {
                 let r = self.civil_escolher(i, args.first().copied()).and_then(|n| self.civil_refazer(i, &n));
                 self.civil_resultado(r);
@@ -186,6 +308,7 @@ impl OpenCADStudio {
             CivilMsg::Folga(v) => st.folga = v,
             CivilMsg::LimitarBorda(v) => st.limitar_borda = v,
             CivilMsg::Comprimento(v) => st.comprimento = v,
+            CivilMsg::TipoLimite(v) => st.tipo_limite = Some(v),
             CivilMsg::Ok => {
                 let modo = st.modo.clone();
                 let (nome, descricao) = (st.nome.clone(), st.descricao.clone());
@@ -200,6 +323,25 @@ impl OpenCADStudio {
                             _ => Err("Maximum triangle length must be a number (0 = none).".into()),
                         }
                     }
+                    Modo::Limite(n) => {
+                        let tipo = if st.tipo_limite.as_deref() == Some("Hide") { "HIDE" } else { "OUTER" };
+                        let pendente = format!("{APLICAR_LIMITE} {n} {tipo} {}", descricao.trim());
+                        self.close_active_modal();
+                        use crate::command::CadCommand;
+                        use crate::modules::draw::select::SelectObjectsCommand;
+                        let c = SelectObjectsCommand::filtered("ADDSURFACEBOUNDARIES", &pendente, "Select closed polylines:", e_polilinha_fechada);
+                        self.command_line.push_info(&c.prompt());
+                        self.tabs[i].active_cmd = Some(Box::new(c));
+                        return Task::none();
+                    }
+                    Modo::Elevar(n) => match st.comprimento.trim().replace(',', ".").parse::<f64>() {
+                        Ok(v) => {
+                            let n = n.clone();
+                            self.close_active_modal();
+                            return self.dispatch_command(&format!("{APLICAR_EDIT} {n} EDIT_RAISELOWER {v}"));
+                        }
+                        Err(_) => Err("Type a number in meters.".into()),
+                    },
                     Modo::Curvas => {
                         let folga = st.folga.trim().replace(',', ".").parse::<f64>();
                         match (st.superficie.clone(), folga) {

@@ -340,7 +340,7 @@ fn panel_height(titles: bool) -> f32 {
 /// Whether module `id`'s tab is contextual: shown only while its context
 /// lasts (a block being edited).
 fn is_contextual(id: &str) -> bool {
-    matches!(id, "block_editor" | "table_cell" | "text_editor")
+    matches!(id, "block_editor" | "table_cell" | "text_editor" | "tin_surface")
 }
 
 // ── Ribbon state ───────────────────────────────────────────────────────────
@@ -449,6 +449,8 @@ pub struct Ribbon {
     /// The tab shown before the Text Editor tab opened, while a multiline
     /// text is edited.
     text_editor_open: Option<usize>,
+    /// Agral CAD: uma superfície selecionada; a aba que estava ativa antes da aba TIN Surface.
+    tin_surface_open: Option<usize>,
     block_testing: Option<usize>,
     /// XDWGFADECTL as the Reference slide-out shows it (negative = off).
     pub xref_fade: i32,
@@ -613,6 +615,7 @@ impl Ribbon {
             block_editing: None,
             table_cell_open: None,
             text_editor_open: None,
+            tin_surface_open: None,
             block_testing: None,
             xref_fade: 50,
             text_find: String::new(),
@@ -840,6 +843,27 @@ impl Ribbon {
         }
     }
 
+    /// Agral CAD: mostra a aba TIN Surface enquanto uma superfície está selecionada (como no Civil 3D) e volta à
+    /// aba anterior quando a seleção acaba.
+    pub fn set_tin_surface_context(&mut self, picked: bool) {
+        let Some(index) = self.modules.iter().position(|module| module.id() == "tin_surface") else {
+            return;
+        };
+        match (picked, self.tin_surface_open) {
+            (true, None) => {
+                self.tin_surface_open = Some(self.active);
+                self.active = index;
+            }
+            (false, Some(previous)) => {
+                self.tin_surface_open = None;
+                if self.active == index {
+                    self.active = previous.min(self.modules.len().saturating_sub(1));
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Show the Text Editor tab while a multiline text is edited, and return
     /// to the previous tab when the editor closes.
     pub fn set_text_editor_context(&mut self, editing: bool) {
@@ -884,6 +908,7 @@ impl Ribbon {
         (id == "block_editor" && self.block_editing.is_none())
             || (id == "table_cell" && self.table_cell_open.is_none())
             || (id == "text_editor" && self.text_editor_open.is_none())
+            || (id == "tin_surface" && self.tin_surface_open.is_none())
     }
 
     pub fn set_block_testing(&mut self, testing: bool) {

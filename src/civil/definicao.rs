@@ -7,11 +7,13 @@ use document::Handle;
 pub const DICIONARIO: [&str; 2] = ["AGRAL_CIVIL", "SURFACES"];
 const MARCA: &str = "AGRAL_SURFACE";
 /// 1: primeira gravação (17/11). 2: opções de correção e emenda em cada item (18/11). 3: estilo (18/11).
-const VERSAO: i16 = 3;
+/// 4: pontos e valor em cada item (limites e edits, 18/11).
+const VERSAO: i16 = 4;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ItemDwg {
-    /// "CONTOURS" (mais tipos nas próximas entregas).
+    /// "CONTOURS"; "BOUNDARY_OUTER", "BOUNDARY_HIDE"; "EDIT_ADDPOINT", "EDIT_DELETEPOINT", "EDIT_DELETELINE",
+    /// "EDIT_RAISELOWER".
     pub tipo: String,
     pub descricao: String,
     pub ligado: bool,
@@ -20,11 +22,28 @@ pub struct ItemDwg {
     /// Emendar pedaços com folga até este valor em metros; 0 = não emendar (R19).
     pub emendar: f64,
     pub fontes: Vec<Handle>,
+    /// Pontos do item (edits: o ponto clicado, com a cota quando vale).
+    pub pontos: Vec<[f64; 3]>,
+    /// Valor do item (Raise/Lower: quanto sobe, em metros).
+    pub valor: f64,
 }
 
 impl ItemDwg {
     pub fn curvas(descricao: &str, fontes: Vec<Handle>) -> Self {
-        ItemDwg { tipo: "CONTOURS".into(), descricao: descricao.into(), ligado: true, corrigir: true, emendar: 5.0, fontes }
+        ItemDwg {
+            tipo: "CONTOURS".into(),
+            descricao: descricao.into(),
+            ligado: true,
+            corrigir: true,
+            emendar: 5.0,
+            fontes,
+            pontos: Vec::new(),
+            valor: 0.0,
+        }
+    }
+
+    pub fn novo(tipo: &str, descricao: &str) -> Self {
+        ItemDwg { tipo: tipo.into(), corrigir: false, emendar: 0.0, ..Self::curvas(descricao, Vec::new()) }
     }
 }
 
@@ -60,6 +79,9 @@ impl SuperficieDwg {
             e.push(XRecordEntry::double(41, it.emendar));
             e.push(XRecordEntry::new(91, XRecordValue::Int32(it.fontes.len() as i32)));
             e.extend(it.fontes.iter().map(|h| XRecordEntry::new(330, XRecordValue::Handle(*h))));
+            e.push(XRecordEntry::new(93, XRecordValue::Int32(it.pontos.len() as i32)));
+            e.extend(it.pontos.iter().map(|p| XRecordEntry::new(10, XRecordValue::Point3D(p[0], p[1], p[2]))));
+            e.push(XRecordEntry::double(42, it.valor));
         }
         e.push(XRecordEntry::new(92, XRecordValue::Int32(self.desenho.len() as i32)));
         e.extend(self.desenho.iter().map(|h| XRecordEntry::new(331, XRecordValue::Handle(*h))));
@@ -124,7 +146,21 @@ impl SuperficieDwg {
             for _ in 0..k {
                 fontes.push(handle(prox(330)?)?);
             }
-            itens.push(ItemDwg { tipo, descricao, ligado, corrigir, emendar, fontes });
+            let (mut pontos, mut valor) = (Vec::new(), 0.0);
+            if versao >= 4 {
+                let n = inteiro(prox(93)?)?;
+                for _ in 0..n {
+                    match prox(10)? {
+                        XRecordValue::Point3D(x, y, z) => pontos.push([*x, *y, *z]),
+                        _ => return Err("ponto esperado".into()),
+                    }
+                }
+                valor = match prox(42)? {
+                    XRecordValue::Double(d) => *d,
+                    _ => return Err("número esperado".into()),
+                };
+            }
+            itens.push(ItemDwg { tipo, descricao, ligado, corrigir, emendar, fontes, pontos, valor });
         }
         let k = inteiro(prox(92)?)?;
         let mut desenho = Vec::new();
@@ -157,6 +193,7 @@ mod testes {
             itens: vec![
                 ItemDwg::curvas("Curvas do Global Mapper", vec![Handle::new(0x2A), Handle::new(0x2B)]),
                 ItemDwg { ligado: false, corrigir: false, emendar: 0.0, ..ItemDwg::curvas("", vec![]) },
+                ItemDwg { pontos: vec![[500000.5, 7500000.25, 812.3]], valor: -0.5, ..ItemDwg::novo("EDIT_ADDPOINT", "") },
             ],
             desenho: vec![Handle::new(0x99)],
             desatualizada: true,

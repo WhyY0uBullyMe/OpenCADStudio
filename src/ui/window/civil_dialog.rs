@@ -13,6 +13,10 @@ pub enum Modo {
     Curvas,
     Propriedades(String),
     Apagar(String),
+    /// Add Boundaries: tipo e descrição, depois a seleção.
+    Limite(String),
+    /// Raise/Lower Surface: quanto sobe (negativo desce).
+    Elevar(String),
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +30,7 @@ pub enum CivilMsg {
     Folga(String),
     LimitarBorda(bool),
     Comprimento(String),
+    TipoLimite(String),
     Ok,
 }
 
@@ -41,6 +46,7 @@ pub(crate) struct State {
     pub folga: String,
     pub limitar_borda: bool,
     pub comprimento: String,
+    pub tipo_limite: Option<String>,
     pub erro: Option<String>,
 }
 
@@ -58,6 +64,7 @@ impl State {
             folga: "5".into(),
             limitar_borda: false,
             comprimento: "0".into(),
+            tipo_limite: Some("Outer".into()),
             erro: None,
         }
     }
@@ -68,6 +75,8 @@ impl State {
             Modo::Curvas => "Add Contour Data".into(),
             Modo::Propriedades(n) => format!("Surface Properties - {n}"),
             Modo::Apagar(_) => "Delete Surface".into(),
+            Modo::Limite(n) => format!("Add Boundaries - {n}"),
+            Modo::Elevar(n) => format!("Raise/Lower Surface - {n}"),
         }
     }
 }
@@ -144,6 +153,28 @@ pub(crate) fn view(state: &State, sizing: crate::ui::modal::ModalSizing) -> Elem
                 .push(seletor_estilo(state))
                 .push(text("Definition - Build options").size(13))
                 .push(campo("Maximum triangle length (m, 0 = none)", &state.comprimento, CivilMsg::Comprimento));
+        }
+        Modo::Limite(_) => {
+            corpo = corpo
+                .push(
+                    row![
+                        text("Type").size(12).width(Length::Fixed(150.0)),
+                        pick_list(state.tipo_limite.clone(), vec!["Outer".to_string(), "Hide".to_string()], |s: &String| s.clone())
+                            .on_select(|s| m(CivilMsg::TipoLimite(s)))
+                            .text_size(12)
+                            .width(Fill),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Center),
+                )
+                .push(campo("Description", &state.descricao, CivilMsg::Descricao))
+                .push(text("Outer: only what is inside stays. Hide: a hole in the surface (a lake, a building).").size(12))
+                .push(text("After OK, select closed polylines in the drawing.").size(12));
+        }
+        Modo::Elevar(_) => {
+            corpo = corpo
+                .push(campo("Amount to add (m)", &state.comprimento, CivilMsg::Comprimento))
+                .push(text("Positive raises the surface, negative lowers it. It goes into Definition > Edits.").size(12));
         }
         Modo::Apagar(n) => {
             corpo = corpo

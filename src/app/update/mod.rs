@@ -732,6 +732,9 @@ impl OpenCADStudio {
                 .get(self.active_tab)
                 .is_some_and(|tab| tab.scene.table_cells.is_some());
         self.ribbon.set_table_cell_context(cells_picked);
+        // Agral CAD: a aba TIN Surface segue a superfície selecionada.
+        let superficie = !testing && !block_editing && !cells_picked && self.civil_superficie_selecionada(self.active_tab).is_some();
+        self.ribbon.set_tin_surface_context(superficie);
         // The Text Editor tab follows the in-place text editor.
         if !pointer_motion {
             self.sync_text_editor_ribbon();

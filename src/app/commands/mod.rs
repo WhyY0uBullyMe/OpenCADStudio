@@ -1041,6 +1041,12 @@ inventory::submit!(crate::command::CommandRegistration {
         "ZOOMSURFACE",
         "TOOLSPACE",
         "SURFACEDEFINITION",
+        "EXTRACTSURFACEOBJECTS",
+        "ADDSURFACEBOUNDARIES",
+        "ADDSURFACEPOINT",
+        "DELETESURFACEPOINT",
+        "DELETESURFACELINE",
+        "RAISELOWERSURFACE",
         // Dispatched commands that the alias file names (#2452).
         "CTABLESTYLE",
         "HPNAME",
