@@ -22,11 +22,23 @@ impl CadModule for CivilModule {
             vec![
                 RibbonGroup {
                     title: "Create Ground Data",
-                    tools: vec![RibbonItem::LargeTool(ferramenta(
-                        "CREATESURFACE",
-                        "Create\nSurface",
-                        include_bytes!("../../../assets/icons/civil_surface.svg"),
-                    ))],
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta(
+                            "CREATESURFACE",
+                            "Create\nSurface",
+                            include_bytes!("../../../assets/icons/civil_surface.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "IMPORTLANDXMLSURFACE",
+                            "Import\nLandXML",
+                            include_bytes!("../../../assets/icons/civil_landxml_in.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "EXPORTLANDXMLSURFACE",
+                            "Export\nLandXML",
+                            include_bytes!("../../../assets/icons/civil_landxml_out.svg"),
+                        )),
+                    ],
                 },
                 RibbonGroup {
                     title: "Surface",
@@ -35,6 +47,21 @@ impl CadModule for CivilModule {
                             "ADDSURFACECONTOURS",
                             "Add\nContours",
                             include_bytes!("../../../assets/icons/civil_contours.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "ADDSURFACEBREAKLINES",
+                            "Add\nBreaklines",
+                            include_bytes!("../../../assets/icons/civil_breaklines.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "ADDSURFACEPOINTFILE",
+                            "Add Point\nFile",
+                            include_bytes!("../../../assets/icons/civil_pointfile.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "ADDSURFACEBOUNDARIES",
+                            "Add\nBoundaries",
+                            include_bytes!("../../../assets/icons/civil_boundary.svg"),
                         )),
                         RibbonItem::LargeTool(ferramenta(
                             "REBUILDSURFACE",
@@ -85,6 +112,7 @@ impl CadModule for TinSurfaceModule {
         let extrair: &'static [u8] = include_bytes!("../../../assets/icons/civil_extract.svg");
         let zoom: &'static [u8] = include_bytes!("../../../assets/icons/civil_zoomsurf.svg");
         let quebras: &'static [u8] = include_bytes!("../../../assets/icons/civil_breaklines.svg");
+        let arqp: &'static [u8] = include_bytes!("../../../assets/icons/civil_pointfile.svg");
         GROUPS.get_or_init(|| {
             vec![
                 RibbonGroup {
@@ -100,6 +128,7 @@ impl CadModule for TinSurfaceModule {
                         RibbonItem::LargeTool(ferramenta("ADDSURFACECONTOURS", "Add\nContours", cur)),
                         RibbonItem::LargeTool(ferramenta("ADDSURFACEBOUNDARIES", "Add\nBoundaries", lim)),
                         RibbonItem::LargeTool(ferramenta("ADDSURFACEBREAKLINES", "Add\nBreaklines", quebras)),
+                        RibbonItem::LargeTool(ferramenta("ADDSURFACEPOINTFILE", "Add Point\nFile", arqp)),
                     ],
                 },
                 RibbonGroup {
@@ -115,6 +144,11 @@ impl CadModule for TinSurfaceModule {
                     title: "Surface Tools",
                     tools: vec![
                         RibbonItem::LargeTool(ferramenta("EXTRACTSURFACEOBJECTS", "Extract\nObjects", extrair)),
+                        RibbonItem::LargeTool(ferramenta(
+                            "EXPORTLANDXMLSURFACE",
+                            "Export\nLandXML",
+                            include_bytes!("../../../assets/icons/civil_landxml_out.svg"),
+                        )),
                         RibbonItem::LargeTool(ferramenta("ZOOMSURFACE", "Zoom\nto", zoom)),
                         RibbonItem::LargeTool(ferramenta("TOOLSPACE", "Toolspace", tsp)),
                     ],

@@ -221,3 +221,34 @@ fn arquivo_de_pontos_entra_na_superficie_e_avisa_linhas_ruins() {
     assert!(app.command_line.history.iter().map(|h| h.text.clone()).any(|l| l.contains("could not be read")));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn landxml_ida_e_volta_mantem_pontos_triangulos_e_cotas() {
+    let dir = std::env::temp_dir().join(format!("agral_landxml_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let arq = dir.join("tn.xml");
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    app.tabs[i].scene.ensure_layer("CURVAS");
+    app.tabs[i].scene.add_entities(vec![curva(100.0, 0.0), curva(101.3, 10.0), curva(102.1, 20.0), curva(104.0, 35.0)]);
+    command(&mut app, "CREATESURFACE TN");
+    command(&mut app, "ADDSURFACECONTOURS TN CURVAS FIX=0");
+    command(&mut app, &format!("EXPORTLANDXMLSURFACE TN \"{}\"", arq.display()));
+    assert!(arq.is_file(), "arquivo gravado");
+    command(&mut app, &format!("IMPORTLANDXMLSURFACE \"{}\"", arq.display()));
+    let nomes = app.civil_superficies(i);
+    assert!(nomes.iter().any(|n| n == "TN(2)"), "importada com nome livre: {nomes:?}");
+    let (_, a) = app.tabs[i].civil_tins.get("TN").unwrap().clone();
+    let (_, b) = app.tabs[i].civil_tins.get("TN(2)").unwrap().clone();
+    assert_eq!(a.vertices.len(), b.vertices.len());
+    assert_eq!(a.triangulos.len(), b.triangulos.len(), "mesma triangulação, sem triangular de novo");
+    for (x, y) in [(5.0, 3.0), (33.0, 12.0), (50.0, 17.5), (77.0, 25.0), (90.0, 30.0), (12.0, 33.0), (61.0, 8.0), (45.0, 22.0), (20.0, 15.0), (85.0, 2.0)] {
+        let (za, zb) = (a.cota_em(x, y), b.cota_em(x, y));
+        assert_eq!(za.is_some(), zb.is_some(), "({x},{y})");
+        if let (Some(za), Some(zb)) = (za, zb) {
+            assert!((za - zb).abs() < 1e-9, "({x},{y}): {za} x {zb}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -307,6 +307,55 @@ impl OpenCADStudio {
                 }
                 Err(e) => self.command_line.push_error(&e),
             },
+            // IMPORTLANDXMLSURFACE [arquivo]: uma superfície por <Surface> do arquivo, com a mesma triangulação.
+            "IMPORTLANDXMLSURFACE" => {
+                if let Some(caminho) = args.first() {
+                    let r = self.civil_importar_landxml(i, caminho);
+                    self.civil_resultado(r);
+                } else {
+                    return Some(iced::Task::perform(
+                        async move {
+                            let h = crate::sys::file_dialog()
+                                .set_title("Import LandXML Surfaces")
+                                .add_filter("LandXML (*.xml)", &["xml"])
+                                .pick_file()
+                                .await?;
+                            Some(crate::sys::handle_path(&h))
+                        },
+                        |p| match p {
+                            Some(p) => Message::Command(format!("IMPORTLANDXMLSURFACE \"{}\"", p.display())),
+                            None => Message::Noop,
+                        },
+                    ));
+                }
+            }
+            // EXPORTLANDXMLSURFACE [superfície] [arquivo]: grava a superfície montada em LandXML 1.2.
+            "EXPORTLANDXMLSURFACE" => match self.civil_escolher(i, args.first().copied()) {
+                Ok(n) => {
+                    if let Some(caminho) = args.get(1) {
+                        let r = self.civil_exportar_landxml(i, &n, caminho);
+                        self.civil_resultado(r);
+                    } else {
+                        let sugestao = format!("{n}.xml");
+                        return Some(iced::Task::perform(
+                            async move {
+                                let h = crate::sys::file_dialog()
+                                    .set_title("Export LandXML Surface")
+                                    .add_filter("LandXML (*.xml)", &["xml"])
+                                    .set_file_name(&sugestao)
+                                    .save_file()
+                                    .await?;
+                                Some(crate::sys::handle_path(&h))
+                            },
+                            move |p| match p {
+                                Some(p) => Message::Command(format!("EXPORTLANDXMLSURFACE {n} \"{}\"", p.display())),
+                                None => Message::Noop,
+                            },
+                        ));
+                    }
+                }
+                Err(e) => self.command_line.push_error(&e),
+            },
             APLICAR_QUEBRAS => {
                 if let Some(nome) = args.first() {
                     let mut item = ItemDwg::novo("BREAKLINES", "");

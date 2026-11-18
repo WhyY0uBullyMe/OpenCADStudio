@@ -52,6 +52,7 @@ const RAMOS: &[(&str, &str, &[u8], &[(&str, &str)])] = &[
     ("Breaklines", "BREAKLINES", ic!("quebras"), &[("Add...", "ADDSURFACEBREAKLINES")]),
     ("Contours", "CONTOURS", ic!("curvas"), &[("Add...", "ADDSURFACECONTOURS")]),
     ("DEM Files", "", ic!("dem"), &[]),
+    ("LandXML", "LANDXML", ic!("arquivo_pontos"), &[]),
     ("Drawing Objects", "", ic!("objetos"), &[]),
     (
         "Edits",
@@ -73,6 +74,7 @@ fn rotulo_item(it: &crate::civil::definicao::ItemDwg, k: usize) -> String {
         "CONTOURS" => format!("Contours {}", k + 1),
         "BREAKLINES" => format!("Breaklines {}", k + 1),
         t if t.starts_with("POINTFILE_") => format!("Point File {}", &t[10..]),
+        "LANDXML" => "LandXML".into(),
         "BOUNDARY_OUTER" => "Outer".into(),
         "BOUNDARY_HIDE" => "Hide".into(),
         "EDIT_ADDPOINT" => "Add Point".into(),

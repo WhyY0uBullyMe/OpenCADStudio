@@ -340,6 +340,54 @@ impl OpenCADStudio {
         Ok(format!("{rotulo} added to '{nome}'. {msg}"))
     }
 
+    /// Importa as superfícies do LandXML: cria uma superfície por `<Surface>` (nome livre: acrescenta (2), (3)...)
+    /// com um item LANDXML que aponta para o arquivo, e monta cada uma.
+    pub(crate) fn civil_importar_landxml(&mut self, i: usize, caminho: &str) -> Result<String, String> {
+        let xml = std::fs::read_to_string(caminho).map_err(|e| format!("Could not read {caminho} ({e})."))?;
+        let lidas = agral_civil_motor::landxml::ler_superficies(&xml).map_err(|e| format!("LandXML: {e}"))?;
+        if lidas.is_empty() {
+            return Err("The LandXML file has no TIN surface.".into());
+        }
+        let mut msgs = Vec::new();
+        for l in lidas {
+            let base: String = l.nome.chars().map(|c| if nome_valido(&c.to_string()) { c } else { '_' }).collect();
+            let base = if base.is_empty() { "Surface".to_string() } else { base };
+            let mut nome = base.clone();
+            let mut k = 2;
+            while self.civil_superficies(i).iter().any(|x| x.eq_ignore_ascii_case(&nome)) {
+                nome = format!("{base}({k})");
+                k += 1;
+            }
+            self.civil_criar(i, &nome, &l.descricao, "")?;
+            let item = ItemDwg::novo("LANDXML", &format!("{caminho}|{}", l.nome));
+            msgs.push(self.civil_acrescentar_item(i, &nome, item)?);
+        }
+        Ok(msgs.join(" "))
+    }
+
+    /// Grava a superfície montada em LandXML 1.2 (o Civil 3D abre).
+    pub(crate) fn civil_exportar_landxml(&mut self, i: usize, nome: &str, caminho: &str) -> Result<String, String> {
+        let s = self.civil_ler(i, nome)?;
+        let tin = match self.tabs[i].civil_tins.get(&s.nome) {
+            Some((_, t)) => t.clone(),
+            None => {
+                let e = self.civil_entrada(i, &s);
+                std::sync::Arc::new(montar_entrada(e, &std::sync::atomic::AtomicU8::new(0)).tin)
+            }
+        };
+        if tin.triangulos.is_empty() {
+            return Err(format!("Surface '{}' has no triangles to export.", s.nome));
+        }
+        let xml = agral_civil_motor::landxml::escrever_superficie(&s.nome, &s.descricao, &tin);
+        std::fs::write(caminho, xml).map_err(|e| format!("Could not write {caminho} ({e})."))?;
+        Ok(format!(
+            "Surface '{}' exported to {caminho} ({} points, {} triangles).",
+            s.nome,
+            tin.vertices.len(),
+            tin.triangulos.len()
+        ))
+    }
+
     pub(crate) fn civil_apagar(&mut self, i: usize, nome: &str) -> Result<String, String> {
         let s = self.civil_ler(i, nome)?;
         self.push_undo_snapshot(i, "DELETESURFACE");
@@ -460,6 +508,15 @@ impl OpenCADStudio {
             comprimento_maximo: s.comprimento_maximo,
             curvas: Vec::new(),
             quebras: Vec::new(),
+            landxml: s
+                .itens
+                .iter()
+                .filter(|it| it.ligado && it.tipo == "LANDXML")
+                .map(|it| {
+                    let (c, n) = it.descricao.rsplit_once('|').unwrap_or((it.descricao.as_str(), ""));
+                    (c.to_string(), n.to_string())
+                })
+                .collect(),
             arquivos_pontos: s
                 .itens
                 .iter()
@@ -883,6 +940,8 @@ pub(crate) struct EntradaSuperficie {
     /// Um grupo por item de curvas: (curvas, corrigir, folga da emenda).
     curvas: Vec<(Vec<Vec<[f64; 3]>>, bool, f64)>,
     quebras: Vec<Vec<[f64; 3]>>,
+    /// Superfícies de LandXML (caminho, nome da superfície no arquivo): a mesma triangulação do arquivo.
+    landxml: Vec<(String, String)>,
     /// Arquivos de pontos (caminho, formato): lidos de novo a cada montagem, fora da linha da tela.
     arquivos_pontos: Vec<(String, String)>,
     externos: Vec<Vec<[f64; 3]>>,
@@ -980,7 +1039,24 @@ pub(crate) fn montar_entrada(e: EntradaSuperficie, fase: &std::sync::atomic::Ato
         sup.acrescentar(ItemDefinicao::furo("hide", f.clone()));
     }
     fase.store(FASE_TRIANGULOS, Relaxed);
-    let mut tin = sup.montar().tin;
+    // LandXML: se é o único dado da superfície, fica a triangulação do arquivo (R3 da spec 003); com outros dados,
+    // os vértices entram como pontos e tudo é triangulado junto.
+    let mut do_arquivo: Vec<Tin> = Vec::new();
+    for (caminho, nome) in &e.landxml {
+        match ler_landxml(caminho, nome) {
+            Ok(t) => do_arquivo.push(t),
+            Err(m) => avisos.push(m),
+        }
+    }
+    let so_landxml = sup.definicao.is_empty() && do_arquivo.len() == 1 && e.externos.is_empty() && e.furos.is_empty();
+    let mut tin = if so_landxml {
+        do_arquivo.pop().unwrap()
+    } else {
+        for t in do_arquivo {
+            sup.acrescentar(ItemDefinicao::pontos("landxml", t.vertices));
+        }
+        sup.montar().tin
+    };
     // Edits que mexem no TIN montado, na ordem da definição.
     for it in &e.edits {
         match it.tipo.as_str() {
@@ -998,6 +1074,16 @@ pub(crate) fn montar_entrada(e: EntradaSuperficie, fase: &std::sync::atomic::Ato
         }
     }
     MontagemSuperficie { tin, avisos, cruzamentos_achados, ligacoes, corrigidos, emendas, restantes }
+}
+
+fn ler_landxml(caminho: &str, nome: &str) -> Result<Tin, String> {
+    let xml = std::fs::read_to_string(caminho).map_err(|e| format!("LandXML {caminho} could not be read ({e})."))?;
+    let todas = agral_civil_motor::landxml::ler_superficies(&xml).map_err(|e| format!("LandXML {caminho}: {e}"))?;
+    todas
+        .into_iter()
+        .find(|s| nome.is_empty() || s.nome == nome)
+        .map(|s| s.tin)
+        .ok_or_else(|| format!("LandXML {caminho} has no surface '{nome}'."))
 }
 
 /// Formato do arquivo de pontos pelo nome (PNEZD, PENZD, NEZ, ENZ; padrão PNEZD).
