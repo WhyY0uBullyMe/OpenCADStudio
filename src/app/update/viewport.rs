@@ -3623,6 +3623,8 @@ impl OpenCADStudio {
             };
             let world = self.cursor_model_point(i, &edit_cam, p, bounds);
             self.tabs[i].last_cursor_world = world;
+            // Agral Civil: a etiqueta da cota fica junto do cursor também sem comando ativo.
+            self.civil_cota_tela = p;
         }
 
         // A pending client pick (`getpoint` or `user_select`) is a command-grade

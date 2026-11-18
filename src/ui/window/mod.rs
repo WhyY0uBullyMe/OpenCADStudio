@@ -65,6 +65,7 @@ pub mod refedit_dialog;
 pub mod rename;
 pub mod toolspace;
 pub mod civil_dialog;
+pub mod civil_progresso;
 pub mod ribbon_customize;
 pub mod select_similar;
 pub mod sheet_set;

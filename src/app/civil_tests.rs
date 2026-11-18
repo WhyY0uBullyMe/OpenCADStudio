@@ -39,6 +39,17 @@ fn cota_no_mouse_depois_de_montar_e_de_reabrir() {
     assert!((z - 101.5).abs() < 1e-6, "z = {z}");
     assert!(cota(&app, 45.0, 50.0).is_none(), "fora da superfície não mostra cota");
 
+    // A etiqueta só aparece com o mouse parado (2 s); mexer o mouse esconde.
+    let _ = app.civil_cota_mouse_andou();
+    assert!(app.civil_cota_relogio, "mouse andou sobre desenho com superfície arma o relógio");
+    let _ = app.civil_cota_relogio();
+    assert!(!app.civil_cota_visivel, "ainda não deu o tempo");
+    app.civil_cota_mov -= crate::app::civil::ESPERA_COTA;
+    let _ = app.civil_cota_relogio();
+    assert!(app.civil_cota_visivel && !app.civil_cota_relogio);
+    let _ = app.civil_cota_mouse_andou();
+    assert!(!app.civil_cota_visivel, "mexeu, escondeu");
+
     // Properties da superfície selecionada: "TIN Surface" com o estilo editável, não "Block Reference".
     let s = crate::civil::superficies(&app.tabs[i].scene.document).remove(0);
     app.tabs[i].scene.select_entity(s.desenho[0], true);
@@ -96,4 +107,21 @@ fn divgrips_e_spl2pl_refazem_a_polilinha() {
     for a in ["PPP,      *PASTEORIG", "SZ,       *SELECTSIMILAR", "HH,       *HIDEOBJECTS"] {
         assert!(pgp.contains(a), "{a}");
     }
+}
+
+#[test]
+fn montagem_em_segundo_plano_desenha_ao_terminar() {
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    app.civil_assincrono = true;
+    let i = app.active_tab;
+    app.tabs[i].scene.ensure_layer("CURVAS");
+    app.tabs[i].scene.add_entities(vec![curva(100.0, 0.0), curva(101.0, 10.0), curva(102.0, 20.0)]);
+    command(&mut app, "CREATESURFACE EG");
+    // O comando volta na hora; a montagem roda fora e desenha quando termina (o teste roda as tarefas até o fim).
+    command(&mut app, "ADDSURFACECONTOURS EG CURVAS FIX=0");
+    assert!(app.civil_montando.is_none(), "terminou");
+    let s = crate::civil::superficies(&app.tabs[i].scene.document).remove(0);
+    assert!(!s.desatualizada && !s.desenho.is_empty(), "desenhada depois da montagem");
+    assert!(cota(&app, 45.0, 15.0).is_some());
 }

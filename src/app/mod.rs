@@ -109,7 +109,7 @@ mod qselect_tests;
 mod quick_calc;
 mod recent;
 mod record_api;
-mod civil;
+pub(crate) mod civil;
 mod rename_dialog;
 mod saved_filters;
 pub(crate) mod settings;
@@ -985,6 +985,19 @@ pub(super) struct OpenCADStudio {
     rename_dialog: Option<crate::ui::window::rename::State>,
     /// Janelas do Agral Civil (Create Surface, Add Contour Data, Surface Properties, Delete).
     pub(crate) civil_dialog: Option<crate::ui::window::civil_dialog::State>,
+    /// Cota no mouse (como a dica do Civil 3D): última vez que o mouse andou, se a etiqueta está à mostra e se
+    /// já há um relógio de espera rodando (um só por vez).
+    pub(crate) civil_cota_mov: std::time::Instant,
+    pub(crate) civil_cota_visivel: bool,
+    pub(crate) civil_cota_relogio: bool,
+    /// Posição do cursor na tela (coordenadas da área de desenho) do último passo do mouse.
+    pub(crate) civil_cota_tela: iced::Point,
+    /// Na janela a montagem da superfície roda em segundo plano; no lote e nos testes, na hora.
+    pub(crate) civil_assincrono: bool,
+    pub(crate) civil_montando: Option<crate::app::civil::MontagemPendente>,
+    pub(crate) civil_fila: Vec<(u64, String)>,
+    /// Tarefas que os serviços do civil pedem e o despacho devolve ao iced.
+    pub(crate) civil_tarefas: Vec<Task<Message>>,
     drawing_properties: Option<crate::ui::window::drawing_properties::State>,
     geographic_location: Option<crate::ui::window::geographic_location::State>,
     purge_dialog: Option<crate::ui::window::purge::State>,
@@ -4186,6 +4199,10 @@ pub enum Message {
     ToolspaceFold(String),
     /// TINs montados em segundo plano para a cota no mouse.
     CivilTinsProntos(crate::app::civil::TinsProntos),
+    /// O relógio da cota no mouse tocou: mostra a etiqueta se o mouse está parado há tempo suficiente.
+    CivilCotaRelogio,
+    /// A montagem da superfície em segundo plano terminou.
+    CivilMontagemPronta(crate::app::civil::MontagemPronta),
     Purge(crate::ui::window::purge::PurgeMsg),
     DwgProps(crate::ui::window::drawing_properties::DwgPropsMsg),
     GeographicLocation(crate::ui::window::geographic_location::GeographicLocationMsg),
@@ -6396,6 +6413,14 @@ impl OpenCADStudio {
             block_edit_picker: None,
             rename_dialog: None,
             civil_dialog: None,
+            civil_cota_mov: std::time::Instant::now(),
+            civil_cota_visivel: false,
+            civil_cota_relogio: false,
+            civil_cota_tela: iced::Point::ORIGIN,
+            civil_assincrono: false,
+            civil_montando: None,
+            civil_fila: Vec::new(),
+            civil_tarefas: Vec::new(),
             drawing_properties: None,
             geographic_location: None,
             purge_dialog: None,
@@ -7466,7 +7491,8 @@ impl OpenCADStudio {
         // up once via the first-launch prompt below (when the user hasn't been
         // asked yet) and afterwards managed entirely by the FILEASSOC command.
         crate::sys::startup_times::mark("boot: begin");
-        let state = Self::new();
+        let mut state = Self::new();
+        state.civil_assincrono = true;
         crate::sys::startup_times::mark("boot: App constructed");
         let (id, open_task) = window::open(window::Settings {
             maximized: true,

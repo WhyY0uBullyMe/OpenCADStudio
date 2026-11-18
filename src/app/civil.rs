@@ -40,6 +40,18 @@ pub(crate) fn nome_valido(nome: &str) -> bool {
         && !nome.chars().any(|c| matches!(c, '<' | '>' | '/' | '\\' | '"' | ':' | ';' | '?' | '*' | '|' | ',' | '=' | '`') || c.is_whitespace())
 }
 
+/// Tempo com o mouse parado até a etiqueta da cota aparecer.
+pub(crate) const ESPERA_COTA: std::time::Duration = std::time::Duration::from_millis(2000);
+
+fn esperar(t: std::time::Duration) -> iced::Task<super::Message> {
+    let (tx, rx) = iced::futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        std::thread::sleep(t);
+        let _ = tx.send(());
+    });
+    iced::Task::perform(async move { rx.await.ok() }, |_| super::Message::CivilCotaRelogio)
+}
+
 /// TINs montados em segundo plano para a cota no mouse: (aba, geração do documento, superfícies).
 #[derive(Clone)]
 pub(crate) struct TinsProntos(pub u64, pub u64, pub Vec<(String, Vec<Handle>, std::sync::Arc<Tin>)>);
@@ -136,6 +148,30 @@ impl OpenCADStudio {
         iced::Task::none()
     }
 
+    /// O mouse andou: esconde a etiqueta da cota e, se não houver relógio rodando, arma um para daqui a
+    /// `ESPERA_COTA` (pedido do JP, 18/11: só aparece com o mouse parado uns 2 s, como no Civil 3D).
+    pub(crate) fn civil_cota_mouse_andou(&mut self) -> iced::Task<super::Message> {
+        self.civil_cota_mov = Instant::now();
+        self.civil_cota_visivel = false;
+        if self.civil_cota_relogio || self.tabs.get(self.active_tab).is_none_or(|t| t.civil_tins.is_empty()) {
+            return iced::Task::none();
+        }
+        self.civil_cota_relogio = true;
+        esperar(ESPERA_COTA)
+    }
+
+    /// O relógio tocou: mouse parado o bastante mostra a etiqueta; senão espera o que falta.
+    pub(crate) fn civil_cota_relogio(&mut self) -> iced::Task<super::Message> {
+        let parado = self.civil_cota_mov.elapsed();
+        if parado >= ESPERA_COTA {
+            self.civil_cota_relogio = false;
+            self.civil_cota_visivel = true;
+            iced::Task::none()
+        } else {
+            esperar(ESPERA_COTA - parado)
+        }
+    }
+
     /// Quando o mouse anda: se alguma superfície do desenho tem desenho mas não tem TIN na memória (desenho
     /// reaberto, desfazer), monta em segundo plano para a cota no mouse. Confere só quando o desenho mudou.
     pub(crate) fn civil_preparar_cota(&mut self) -> iced::Task<super::Message> {
@@ -163,7 +199,7 @@ impl OpenCADStudio {
         std::thread::spawn(move || {
             let prontos = entradas
                 .into_iter()
-                .map(|(n, d, e)| (n, d, std::sync::Arc::new(montar_entrada(e).tin)))
+                .map(|(n, d, e)| (n, d, std::sync::Arc::new(montar_entrada(e, &std::sync::atomic::AtomicU8::new(0)).tin)))
                 .collect();
             let _ = tx.send(TinsProntos(id, geracao, prontos));
         });
@@ -447,11 +483,96 @@ impl OpenCADStudio {
     /// `REBUILDSURFACE`: monta o TIN a partir da lista de definição e troca o desenho antigo pelo novo.
     pub(crate) fn civil_refazer(&mut self, i: usize, nome: &str) -> Result<String, String> {
         let t0 = Instant::now();
-        let mut s = self.civil_ler(i, nome)?;
+        let s = self.civil_ler(i, nome)?;
+        if self.civil_assincrono {
+            return Ok(self.civil_refazer_em_segundo_plano(i, s));
+        }
         let entrada = self.civil_entrada(i, &s);
         let sumidas = entrada.sumidas;
         let t_ler = t0.elapsed();
-        let MontagemSuperficie { tin, cruzamentos_achados, ligacoes, corrigidos, emendas, restantes } = montar_entrada(entrada);
+        let m = montar_entrada(entrada, &std::sync::atomic::AtomicU8::new(0));
+        self.civil_desenhar(i, s, m, sumidas, t0, t_ler)
+    }
+
+    /// Na janela: a montagem roda fora da linha da tela, com a barra de progresso (pedido do JP, 18/11: "parece
+    /// que trava"). Uma montagem por vez; as outras esperam na fila.
+    fn civil_refazer_em_segundo_plano(&mut self, i: usize, s: SuperficieDwg) -> String {
+        let tab = self.tabs[i].id;
+        if self.civil_montando.is_some() {
+            if !self.civil_fila.iter().any(|(t, n)| *t == tab && n.eq_ignore_ascii_case(&s.nome)) {
+                self.civil_fila.push((tab, s.nome.clone()));
+            }
+            return format!("Surface '{}' queued; another surface is being built.", s.nome);
+        }
+        let entrada = self.civil_entrada(i, &s);
+        let fase = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+        let pendente = MontagemPendente {
+            tab,
+            geracao: self.tabs[i].document_generation,
+            definicao: s.clone(),
+            inicio: Instant::now(),
+            fase: fase.clone(),
+        };
+        let nome = s.nome.clone();
+        self.civil_montando = Some(pendente);
+        let (tx, rx) = iced::futures::channel::oneshot::channel();
+        std::thread::spawn(move || {
+            let sumidas = entrada.sumidas;
+            let m = montar_entrada(entrada, &fase);
+            let _ = tx.send(MontagemPronta(std::sync::Arc::new(std::sync::Mutex::new(Some((m, sumidas))))));
+        });
+        self.civil_tarefas.push(iced::Task::perform(async move { rx.await.ok() }, |r| match r {
+            Some(m) => super::Message::CivilMontagemPronta(m),
+            None => super::Message::Noop,
+        }));
+        format!("Building surface '{nome}'...")
+    }
+
+    /// A montagem em segundo plano terminou: desenha (se o desenho e a definição ainda são os mesmos) e começa a
+    /// próxima da fila.
+    pub(crate) fn civil_montagem_pronta(&mut self, pronta: MontagemPronta) -> iced::Task<super::Message> {
+        let Some(p) = self.civil_montando.take() else { return iced::Task::none() };
+        let Some((m, sumidas)) = pronta.0.lock().ok().and_then(|mut g| g.take()) else { return iced::Task::none() };
+        if let Some(i) = self.tabs.iter().position(|t| t.id == p.tab && t.document_generation == p.geracao) {
+            match self.civil_ler(i, &p.definicao.nome) {
+                // A definição mudou durante a montagem: monta de novo com a nova.
+                Ok(atual) if atual != p.definicao => {
+                    let msg = self.civil_refazer_em_segundo_plano(i, atual);
+                    self.command_line.push_info(&msg);
+                }
+                Ok(atual) => {
+                    let t_ler = std::time::Duration::ZERO;
+                    match self.civil_desenhar(i, atual, m, sumidas, p.inicio, t_ler) {
+                        Ok(msg) => self.command_line.push_info(&msg),
+                        Err(e) => self.command_line.push_error(&e),
+                    }
+                    self.refresh_properties();
+                }
+                Err(_) => {}
+            }
+        }
+        while self.civil_montando.is_none() && !self.civil_fila.is_empty() {
+            let (tab, nome) = self.civil_fila.remove(0);
+            if let Some(i) = self.tabs.iter().position(|t| t.id == tab) {
+                if let Ok(s) = self.civil_ler(i, &nome) {
+                    let msg = self.civil_refazer_em_segundo_plano(i, s);
+                    self.command_line.push_info(&msg);
+                }
+            }
+        }
+        iced::Task::batch(std::mem::take(&mut self.civil_tarefas))
+    }
+
+    fn civil_desenhar(
+        &mut self,
+        i: usize,
+        mut s: SuperficieDwg,
+        m: MontagemSuperficie,
+        sumidas: usize,
+        t0: Instant,
+        t_ler: std::time::Duration,
+    ) -> Result<String, String> {
+        let MontagemSuperficie { tin, cruzamentos_achados, ligacoes, corrigidos, emendas, restantes } = m;
         let montagem_tin = std::sync::Arc::new(tin);
         let t_montar = t0.elapsed();
 
@@ -693,6 +814,41 @@ fn apagar_aresta_perto(tin: &Tin, p: [f64; 3]) -> Tin {
     Tin::novo(tin.vertices.clone(), tri)
 }
 
+pub(crate) const FASE_CRUZAMENTOS: u8 = 1;
+pub(crate) const FASE_CORRECAO: u8 = 2;
+pub(crate) const FASE_EMENDA: u8 = 3;
+pub(crate) const FASE_TRIANGULOS: u8 = 4;
+
+/// Texto da fase para a barra de progresso.
+pub(crate) fn texto_da_fase(f: u8) -> &'static str {
+    match f {
+        FASE_CRUZAMENTOS => "Checking contour crossings",
+        FASE_CORRECAO => "Fixing contour crossings",
+        FASE_EMENDA => "Joining contour gaps",
+        FASE_TRIANGULOS => "Triangulating",
+        _ => "Reading data",
+    }
+}
+
+/// Montagem de superfície rodando em segundo plano.
+pub(crate) struct MontagemPendente {
+    pub tab: u64,
+    pub geracao: u64,
+    pub definicao: SuperficieDwg,
+    pub inicio: Instant,
+    pub fase: std::sync::Arc<std::sync::atomic::AtomicU8>,
+}
+
+/// Resultado da montagem em segundo plano (vai uma vez só, por isso o `Option` dentro).
+#[derive(Clone)]
+pub(crate) struct MontagemPronta(pub std::sync::Arc<std::sync::Mutex<Option<(MontagemSuperficie, usize)>>>);
+
+impl std::fmt::Debug for MontagemPronta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MontagemPronta")
+    }
+}
+
 /// O que a montagem precisa, já lido do desenho (sem referência ao documento).
 pub(crate) struct EntradaSuperficie {
     nome: String,
@@ -716,19 +872,23 @@ pub(crate) struct MontagemSuperficie {
 }
 
 /// Monta o TIN: diagnóstico, correção e emenda das curvas, edits, triangulação. Não toca no desenho.
-pub(crate) fn montar_entrada(e: EntradaSuperficie) -> MontagemSuperficie {
+pub(crate) fn montar_entrada(e: EntradaSuperficie, fase: &std::sync::atomic::AtomicU8) -> MontagemSuperficie {
+    use std::sync::atomic::Ordering::Relaxed;
     let mut todas: Vec<Vec<[f64; 3]>> = Vec::new();
     let mut cruzamentos_achados: Vec<[f64; 3]> = Vec::new();
     let mut ligacoes: Vec<[[f64; 3]; 2]> = Vec::new();
     let (mut corrigidos, mut emendas) = (0usize, 0usize);
     for (mut linhas, corrigir, emendar) in e.curvas {
+        fase.store(FASE_CRUZAMENTOS, Relaxed);
         let diag = diagnosticar_curvas(&linhas);
         cruzamentos_achados.extend(diag.cruzamentos.iter().map(|c| c.ponto));
         if corrigir && !diag.cruzamentos.is_empty() {
+            fase.store(FASE_CORRECAO, Relaxed);
             linhas = corrigir_cruzamentos(&linhas, &Default::default()).curvas;
             corrigidos += diag.cruzamentos.len();
         }
         if emendar > 0.0 {
+            fase.store(FASE_EMENDA, Relaxed);
             let r = emendar_pedacos(&linhas, &OpcoesEmenda { folga_maxima: emendar, limite: e.externos.first().cloned() });
             emendas += r.emendas;
             ligacoes.extend(r.ligacoes);
@@ -764,6 +924,7 @@ pub(crate) fn montar_entrada(e: EntradaSuperficie) -> MontagemSuperficie {
     for f in &e.furos {
         sup.acrescentar(ItemDefinicao::furo("hide", f.clone()));
     }
+    fase.store(FASE_TRIANGULOS, Relaxed);
     let mut tin = sup.montar().tin;
     // Edits que mexem no TIN montado, na ordem da definição.
     for it in &e.edits {

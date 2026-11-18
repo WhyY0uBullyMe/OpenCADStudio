@@ -55,6 +55,32 @@ jobs:
           cp LICENSE "$d/"
           printf 'Agral CAD (teste)\nAbra AgralCAD.exe. Aba Civil: Create Surface, Add Contours, Rebuild, Toolspace.\nComandos: CREATESURFACE, ADDSURFACECONTOURS, REBUILDSURFACE, SURFACEPROPERTIES, DELETESURFACE, ZOOMSURFACE, TOOLSPACE.\nBaseado no Open CAD Studio (GPL 3). Codigo: https://github.com/WhyY0uBullyMe/OpenCADStudio/tree/agral-cad\n' > "$d/LEIA-ME.txt"
 
+      - name: Installer (MSI)
+        # Se o instalador falhar, o ZIP portátil ainda sai.
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # Versão: 0.<dias desde 2026-01-01>.<número da execução> (MSI aceita até 255.255.65535).
+          $dias = [int]((Get-Date) - (Get-Date '2026-01-01')).TotalDays
+          $version = "0.$dias.${{ github.run_number }}"
+          $wix = $env:WIX
+          if (-not $wix) { throw "WiX 3 não encontrado no runner" }
+          & (Join-Path $wix "bin\candle.exe") -arch x64 "-dVersion=$version" `
+            "-dSource=$((Resolve-Path AgralCAD\AgralCAD.exe).Path)" `
+            "-dIcon=$((Resolve-Path packaging\windows\AppIcon.ico).Path)" `
+            "-dLicense=$((Resolve-Path packaging\windows\License.rtf).Path)" `
+            packaging\agral\AgralCAD.wxs -out AgralCAD.wixobj
+          if ($LASTEXITCODE -ne 0) { throw "candle falhou" }
+          & (Join-Path $wix "bin\light.exe") AgralCAD.wixobj -ext WixUIExtension -cultures:pt-BR -out AgralCAD-instalador.msi
+          if ($LASTEXITCODE -ne 0) { throw "light falhou" }
+
+      - name: Upload installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: AgralCAD-instalador
+          path: AgralCAD-instalador.msi
+          retention-days: 30
+
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

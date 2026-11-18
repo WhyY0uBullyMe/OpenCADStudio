@@ -1,0 +1,59 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Agral CAD: instalador MSI (pedido do JP, 18/11: "quero que seja um programa mesmo", não só um executável).
+     Instala em Arquivos de Programas\Agral CAD, com atalho no menu Iniciar e na área de trabalho, o template do JP e
+     desinstalação pelo Painel de Controle. Não toma a associação do .dwg do AutoCAD. -->
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+  <Product Id='*' Name='Agral CAD' UpgradeCode='6e0f5055-d38c-4b77-83bb-d0cdfd649160'
+           Manufacturer='Agral Engenharia' Language='1046' Codepage='1252' Version='$(var.Version)'>
+    <Package Id='*' Description='Agral CAD' Manufacturer='Agral Engenharia' InstallerVersion='500'
+             Languages='1046' Compressed='yes' InstallScope='perMachine' SummaryCodepage='1252' />
+    <MajorUpgrade Schedule='afterInstallInitialize'
+                  DowngradeErrorMessage='Uma versão mais nova do Agral CAD já está instalada.' />
+    <Media Id='1' Cabinet='agralcad.cab' EmbedCab='yes' CompressionLevel='high' />
+
+    <Icon Id='AgralCAD.ico' SourceFile='$(var.Icon)' />
+    <Property Id='ARPPRODUCTICON' Value='AgralCAD.ico' />
+    <Property Id='ARPCONTACT' Value='Agral Engenharia' />
+    <Property Id='ARPNOREPAIR' Value='1' />
+    <Property Id='WIXUI_INSTALLDIR' Value='INSTALLDIR' />
+    <WixVariable Id='WixUILicenseRtf' Value='$(var.License)' />
+    <UIRef Id='WixUI_InstallDir' />
+
+    <Directory Id='TARGETDIR' Name='SourceDir'>
+      <Directory Id='ProgramFiles64Folder'>
+        <Directory Id='INSTALLDIR' Name='Agral CAD'>
+          <Component Id='Programa' Guid='3dfc59b9-8962-4587-868d-b4cd6e29d457' Win64='yes'>
+            <File Id='AgralCADEXE' Name='AgralCAD.exe' Source='$(var.Source)' KeyPath='yes'>
+              <Shortcut Id='AtalhoMenu' Directory='MenuAgral' Name='Agral CAD' WorkingDirectory='INSTALLDIR'
+                        Icon='AgralCAD.ico' IconIndex='0' Advertise='yes' />
+              <Shortcut Id='AtalhoMesa' Directory='DesktopFolder' Name='Agral CAD' WorkingDirectory='INSTALLDIR'
+                        Icon='AgralCAD.ico' IconIndex='0' Advertise='yes' />
+            </File>
+            <File Id='Licenca' Name='LICENSE.txt' Source='LICENSE' />
+          </Component>
+          <Directory Id='PastaTemplates' Name='templates'>
+            <Component Id='Templates' Guid='6d20048c-900c-4071-affe-01bad4899e0b' Win64='yes'>
+              <File Id='TemplateJP' Name='TEMPLATE_JP.dwt' Source='packaging\agral\TEMPLATE_JP.dwt' KeyPath='yes' />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id='ProgramMenuFolder'>
+        <Directory Id='MenuAgral' Name='Agral CAD'>
+          <Component Id='MenuAgralComp' Guid='35dd979d-8988-4939-8d33-c754b0cf2522'>
+            <RemoveFolder Id='MenuAgral' On='uninstall' />
+            <RegistryValue Root='HKCU' Key='Software\Agral Engenharia\Agral CAD' Name='instalado' Type='integer'
+                           Value='1' KeyPath='yes' />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id='DesktopFolder' Name='Desktop' />
+    </Directory>
+
+    <Feature Id='Completo' Title='Agral CAD' Level='1'>
+      <ComponentRef Id='Programa' />
+      <ComponentRef Id='Templates' />
+      <ComponentRef Id='MenuAgralComp' />
+    </Feature>
+  </Product>
+</Wix>

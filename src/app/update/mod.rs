@@ -696,6 +696,10 @@ impl OpenCADStudio {
         self.dock_keep_view();
         // Thumbnails the block palette asked for are read in the background.
         task = Task::batch([task, self.palette_thumbnail_task()]);
+        // Agral Civil: montagens de superfície que um comando pediu em segundo plano.
+        if !self.civil_tarefas.is_empty() {
+            task = Task::batch([task, Task::batch(std::mem::take(&mut self.civil_tarefas))]);
+        }
         // A script waiting on an open or a save goes on once it is done,
         // however that open or save ended.
         if self.script_paused && !self.script_busy() {
@@ -6222,7 +6226,7 @@ impl OpenCADStudio {
             // ── Cursor / viewport messages ─────────────────────────────────
             Message::CursorMoved(p, viewport) => {
                 let t = self.on_cursor_moved(p, viewport);
-                Task::batch([t, self.civil_preparar_cota()])
+                Task::batch([t, self.civil_preparar_cota(), self.civil_cota_mouse_andou()])
             }
 
             // A multi-finger gesture owns the pointer while it runs.
@@ -14484,6 +14488,8 @@ impl OpenCADStudio {
             Message::BlockEditPickerApply => self.apply_bedit_dialog(),
             Message::Rename(msg) => self.on_rename_dialog(msg),
             Message::Civil(msg) => self.on_civil_dialog(msg),
+            Message::CivilCotaRelogio => self.civil_cota_relogio(),
+            Message::CivilMontagemPronta(m) => self.civil_montagem_pronta(m),
             Message::CivilTinsProntos(t) => {
                 self.civil_tins_prontos(t);
                 Task::none()

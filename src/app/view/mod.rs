@@ -2681,19 +2681,19 @@ bg={bg_ms:.1}ms n={view_count}"
             }
 
             // Agral Civil: cota da superfície sob o mouse, como a dica do Civil 3D (pedido do JP, 18/11).
-            if !tab.is_start && tab.editing_model_space() && !tab.civil_tins.is_empty() {
+            if self.civil_cota_visivel && !tab.is_start && tab.editing_model_space() && !tab.civil_tins.is_empty() {
                 let w = tab.last_cursor_world;
                 if let Some((nome, z)) = crate::app::civil::cota_no_ponto(&tab.civil_tins, &tab.scene.document, w.x, w.y) {
                     let dica = container(
-                        text(format!("{nome}\nElevation: {z:.3}")).size(12).color(Color::from_rgb8(0xF0, 0xF4, 0xF8)),
+                        text(format!("{nome}\nElevation: {z:.3}")).size(12).color(Color::from_rgb8(0x10, 0x18, 0x24)),
                     )
                     .padding([3, 6])
                     .style(|_: &Theme| container::Style {
-                        background: Some(Background::Color(Color::from_rgba8(0x12, 0x1A, 0x26, 0.92))),
-                        border: iced::Border { color: Color::from_rgb8(0x5A, 0xA9, 0xE6), width: 1.0, radius: 3.0.into() },
+                        background: Some(Background::Color(Color::from_rgb8(0xFF, 0xFF, 0xF4))),
+                        border: iced::Border { color: Color::from_rgb8(0x76, 0x76, 0x76), width: 1.0, radius: 2.0.into() },
                         ..Default::default()
                     });
-                    let p = tab.last_cursor_screen;
+                    let p = self.civil_cota_tela;
                     viewport_stack = viewport_stack.push(iced::widget::pin(dica).position(iced::Point::new(p.x + 18.0, p.y + 18.0)));
                 }
             }
@@ -3745,6 +3745,11 @@ bg={bg_ms:.1}ms n={view_count}"
             iced::widget::Space::new().width(0).height(0).into()
         };
 
+        let civil_progresso_layer: Element<'_, Message> = match self.civil_montando.as_ref() {
+            Some(m) => crate::ui::window::civil_progresso::view(m, iced::time::Instant::now()),
+            None => iced::widget::Space::new().width(0).height(0).into(),
+        };
+
         // A minimized ribbon's popup lies over the drawing, under dropdowns.
         let ribbon_popup_layer: Element<'_, Message> = if self.clean_screen || self.ribbon_closed {
             None
@@ -3816,6 +3821,7 @@ bg={bg_ms:.1}ms n={view_count}"
             layer_import_layer,
             snap_override_layer,
             open_progress_layer,
+            civil_progresso_layer,
             keytip_layer,
         ];
 
@@ -3960,7 +3966,8 @@ impl OpenCADStudio {
         let needs_frames = self
             .opening
             .as_ref()
-            .is_some_and(|progress| progress.recovery_error.is_none());
+            .is_some_and(|progress| progress.recovery_error.is_none())
+            || self.civil_montando.is_some();
         let frames = if needs_frames {
             crate::app::tool_windows::main_window_frames().map(Message::Tick)
         } else {
