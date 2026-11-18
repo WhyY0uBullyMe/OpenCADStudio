@@ -7078,6 +7078,18 @@ impl OpenCADStudio {
         // on first launch). The hide-set keeps aliases out of autocomplete while
         // their target command still shows.
         app.command_aliases = alias::load_aliases();
+        // Agral CAD: o template da Agral (pasta `templates` ao lado do programa) é o padrão do New Drawing até o usuário
+        // escolher outro em Options > Files.
+        #[cfg(not(target_arch = "wasm32"))]
+        if app.qnew_template.trim().is_empty() {
+            if let Some(t) = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|d| d.join("templates").join("TEMPLATE_JP.dwt")))
+                .filter(|t| t.is_file())
+            {
+                app.qnew_template = t.to_string_lossy().into_owned();
+            }
+        }
         app.command_line.command_aliases = app.command_aliases.clone();
         crate::sys::startup_times::mark("App::new: aliases loaded");
         // Load external plugin packages from the plugins folder once, then fold

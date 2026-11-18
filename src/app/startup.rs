@@ -220,6 +220,16 @@ mod tests {
     }
 
     #[test]
+    fn agral_cad_nao_pede_doacao() {
+        let mut app = OpenCADStudio::new_for_test();
+        app.donation_prompt_version.clear();
+        app.queue_startup_prompts();
+        assert!(!app.pending_startup_modals.contains(&ModalKind::DonationPrompt));
+        assert_ne!(app.active_modal, Some(ModalKind::DonationPrompt));
+    }
+
+    #[test]
+    #[ignore = "Agral CAD não pede doação (decisão do JP, 18/11); ver agral_cad_nao_pede_doacao"]
     fn donation_prompt_persists_once_per_version() {
         let mut app = OpenCADStudio::new_for_test();
         // Older settings have no donation version; headless construction never prompts.
@@ -253,6 +263,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Agral CAD não pede doação (decisão do JP, 18/11); ver agral_cad_nao_pede_doacao"]
     fn automation_sessions_skip_the_donation_prompt() {
         // First control contact drops a still-queued donation prompt and
         // stops later queueing while control stays enabled (#1349).
@@ -289,6 +300,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Agral CAD não pede doação (decisão do JP, 18/11); ver agral_cad_nao_pede_doacao"]
     fn startup_dialogs_wait_their_turn_and_preserve_unseen_prompts() {
         let mut app = OpenCADStudio::new_for_test();
         app.apply_config(AppConfig::default());

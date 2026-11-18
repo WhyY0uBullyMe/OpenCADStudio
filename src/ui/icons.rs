@@ -589,19 +589,8 @@ const LOGO: &[u8] = include_bytes!("../../assets/logo.svg");
 /// The logo's letters alone: its four letter shapes, without the
 /// background, the crosshair and the corner stripes.
 fn logo_letters() -> &'static [u8] {
-    static LETTERS: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
-    LETTERS.get_or_init(|| {
-        let source = std::str::from_utf8(LOGO).expect("logo.svg is UTF-8");
-        let paths: String = source
-            .split("<path")
-            .skip(1)
-            .map(|rest| format!("<path{}/>", &rest[..rest.find("/>").unwrap_or(rest.len())]))
-            .collect();
-        format!(
-            r#"<svg width="724" height="292" viewBox="110 192 724 292" fill="none" xmlns="http://www.w3.org/2000/svg">{paths}</svg>"#
-        )
-        .into_bytes()
-    })
+    // Agral CAD: as letras AGRAL do logo oficial da Agral, vetorizadas (sem o subtítulo, que some no canto).
+    include_bytes!("../../assets/logo_letters.svg")
 }
 
 /// The logo in the theme's colours: blue to the accent, white to the text
@@ -1552,8 +1541,10 @@ mod tests {
         ] {
             assert!(!svg.contains(original), "{original} is left");
         }
-        let letters = std::str::from_utf8(super::logo_letters()).unwrap();
-        assert_eq!(letters.matches("<path").count(), 4);
+        // Agral CAD: as letras do logo da Agral seguem o tema (o branco vira a cor do texto); sem fundo.
+        let letters = String::from_utf8(super::recolor_logo(super::logo_letters(), &theme)).unwrap();
+        assert!(letters.contains("<path"), "letras da Agral");
+        assert!(!letters.contains("#F7F7F8"));
         assert!(!letters.contains("<rect"));
     }
 

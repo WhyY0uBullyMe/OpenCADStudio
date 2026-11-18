@@ -50,6 +50,8 @@ jobs:
           d=AgralCAD
           mkdir -p "$d"
           cp target/release/OpenCADStudio.exe "$d/AgralCAD.exe"
+          mkdir -p "$d/templates"
+          cp packaging/agral/TEMPLATE_JP.dwt "$d/templates/"
           cp LICENSE "$d/"
           printf 'Agral CAD (teste)\nAbra AgralCAD.exe. Aba Civil: Create Surface, Add Contours, Rebuild, Toolspace.\nComandos: CREATESURFACE, ADDSURFACECONTOURS, REBUILDSURFACE, SURFACEPROPERTIES, DELETESURFACE, ZOOMSURFACE, TOOLSPACE.\nBaseado no Open CAD Studio (GPL 3). Codigo: https://github.com/WhyY0uBullyMe/OpenCADStudio/tree/agral-cad\n' > "$d/LEIA-ME.txt"
 

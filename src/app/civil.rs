@@ -233,7 +233,17 @@ impl OpenCADStudio {
         let scene = &mut self.tabs[i].scene;
         scene.erase_entities(&s.desenho);
         for camada in novas.iter().map(|e| e.common().layer.clone()).collect::<std::collections::BTreeSet<_>>() {
+            let nova = !scene.document.layers.contains(&camada);
             scene.ensure_layer(&camada);
+            // Camada que o template da Agral define: criada com a cor e a espessura dele.
+            if let (true, Some((_, cor, esp))) = (nova, crate::civil::estilos::CAMADAS.iter().find(|c| c.0 == camada)) {
+                if let Some(l) = scene.document.layers.get_mut(&camada) {
+                    l.color = document::Color::Index(*cor);
+                    if *esp > 0 {
+                        l.line_weight = document::types::LineWeight::Value(*esp);
+                    }
+                }
+            }
         }
         if !cruzamentos_achados.is_empty() {
             scene.ensure_layer(CAMADA_DIAGNOSTICO);
@@ -299,15 +309,16 @@ impl OpenCADStudio {
 /// O que o estilo manda desenhar: curvas intermediárias e mestras, borda e triângulos.
 fn desenho_do_estilo(tin: &Tin, estilo: &crate::civil::estilos::Estilo, nome: &str) -> Vec<EntityType> {
     use document::entities::{LwPolyline, Polyline3D};
-    use document::{Color, Vector2};
+    use crate::civil::estilos::{CAMADA_BORDA, CAMADA_INTERMEDIARIA, CAMADA_MESTRA, CAMADA_TRIANGULOS};
+    use document::Vector2;
     let mut v = Vec::new();
     if estilo.triangulos {
-        v.extend(malhas(tin, &format!("C-TOPO-{nome}"), nome));
+        v.extend(malhas(tin, CAMADA_TRIANGULOS.0, nome));
     }
     if estilo.curvas {
         if let Some((zmin, zmax)) = tin.faixa_de_cotas() {
             for (z, mestra) in crate::civil::estilos::cotas(estilo, zmin, zmax) {
-                let (camada, cor) = if mestra { (format!("C-TOPO-{nome}-MAJR"), 7) } else { (format!("C-TOPO-{nome}-MINR"), 8) };
+                let camada = if mestra { CAMADA_MESTRA.0 } else { CAMADA_INTERMEDIARIA.0 };
                 for c in tin.curvas_de_nivel(z) {
                     let fechada = c.len() > 3 && c.first() == c.last();
                     let n = if fechada { c.len() - 1 } else { c.len() };
@@ -315,8 +326,7 @@ fn desenho_do_estilo(tin: &Tin, estilo: &crate::civil::estilos::Estilo, nome: &s
                     p.elevation = z;
                     p.is_closed = fechada;
                     let mut e = EntityType::LwPolyline(p);
-                    e.common_mut().layer = camada.clone();
-                    e.common_mut().color = Color::Index(cor);
+                    e.common_mut().layer = camada.to_string();
                     marcar(&mut e, &format!("CONTOUR:{nome}:{z}"));
                     v.push(e);
                 }
@@ -328,8 +338,7 @@ fn desenho_do_estilo(tin: &Tin, estilo: &crate::civil::estilos::Estilo, nome: &s
             let mut p = Polyline3D::from_points(anel.iter().map(|q| Vector3::new(q[0], q[1], q[2])).collect());
             p.flags.closed = true;
             let mut e = EntityType::Polyline3D(p);
-            e.common_mut().layer = format!("C-TOPO-{nome}-BRDR");
-            e.common_mut().color = Color::Index(30);
+            e.common_mut().layer = CAMADA_BORDA.0.to_string();
             marcar(&mut e, &format!("BORDER:{nome}"));
             v.push(e);
         }

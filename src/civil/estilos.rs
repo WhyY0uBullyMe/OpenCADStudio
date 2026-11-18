@@ -79,3 +79,11 @@ mod testes {
         assert_eq!(estilo("não existe").nome, "Curvas 1m");
     }
 }
+
+/// Camadas dos componentes da superfície, as do template da Agral (`TEMPLATE_JP.dwt`, 18/11): nome, cor (ACI) e
+/// espessura em centésimos de mm (0 = padrão). Num desenho sem essas camadas, são criadas assim.
+pub const CAMADA_MESTRA: (&str, u8, i16) = ("CURVA MESTRA-AS", 2, 15);
+pub const CAMADA_INTERMEDIARIA: (&str, u8, i16) = ("CURVA INTERMEDIÁRIA-AS", 252, 9);
+pub const CAMADA_BORDA: (&str, u8, i16) = ("BORDA SUPERFÍCIE-AS", 2, 0);
+pub const CAMADA_TRIANGULOS: (&str, u8, i16) = ("TRIANGULAÇÃO-AS", 139, 9);
+pub const CAMADAS: [(&str, u8, i16); 4] = [CAMADA_MESTRA, CAMADA_INTERMEDIARIA, CAMADA_BORDA, CAMADA_TRIANGULOS];
