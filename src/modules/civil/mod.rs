@@ -84,6 +84,7 @@ impl CadModule for TinSurfaceModule {
         let elevar: &'static [u8] = include_bytes!("../../../assets/icons/civil_raise.svg");
         let extrair: &'static [u8] = include_bytes!("../../../assets/icons/civil_extract.svg");
         let zoom: &'static [u8] = include_bytes!("../../../assets/icons/civil_zoomsurf.svg");
+        let quebras: &'static [u8] = include_bytes!("../../../assets/icons/civil_breaklines.svg");
         GROUPS.get_or_init(|| {
             vec![
                 RibbonGroup {
@@ -98,6 +99,7 @@ impl CadModule for TinSurfaceModule {
                     tools: vec![
                         RibbonItem::LargeTool(ferramenta("ADDSURFACECONTOURS", "Add\nContours", cur)),
                         RibbonItem::LargeTool(ferramenta("ADDSURFACEBOUNDARIES", "Add\nBoundaries", lim)),
+                        RibbonItem::LargeTool(ferramenta("ADDSURFACEBREAKLINES", "Add\nBreaklines", quebras)),
                     ],
                 },
                 RibbonGroup {

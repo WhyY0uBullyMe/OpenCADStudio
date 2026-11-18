@@ -314,6 +314,13 @@ impl OpenCADStudio {
 
     /// Acrescenta um limite ou um edit à definição e refaz. Limite: só polilinhas fechadas.
     pub(crate) fn civil_acrescentar_item(&mut self, i: usize, nome: &str, mut item: ItemDwg) -> Result<String, String> {
+        if item.tipo == "BREAKLINES" {
+            let doc = &self.tabs[i].scene.document;
+            item.fontes.retain(|h| doc.get_entity(*h).and_then(curvas::pontos).is_some_and(|p| p.len() >= 2));
+            if item.fontes.is_empty() {
+                return Err("Select polylines or lines for the breaklines.".into());
+            }
+        }
         if item.tipo.starts_with("BOUNDARY") {
             let doc = &self.tabs[i].scene.document;
             item.fontes.retain(|h| {
@@ -452,6 +459,7 @@ impl OpenCADStudio {
             descricao: s.descricao.clone(),
             comprimento_maximo: s.comprimento_maximo,
             curvas: Vec::new(),
+            quebras: Vec::new(),
             externos: Vec::new(),
             furos: Vec::new(),
             edits: s.itens.iter().filter(|it| it.ligado && it.tipo.starts_with("EDIT_")).cloned().collect(),
@@ -463,6 +471,15 @@ impl OpenCADStudio {
                 match doc.get_entity(*h).and_then(curvas::pontos) {
                     Some(p) if it.tipo == "BOUNDARY_HIDE" => e.furos.push(p),
                     Some(p) => e.externos.push(p),
+                    None => e.sumidas += 1,
+                }
+            }
+        }
+        // Linhas de quebra: arestas obrigatórias do TIN, com a cota de cada vértice (R1 da spec 003).
+        for it in s.itens.iter().filter(|it| it.ligado && it.tipo == "BREAKLINES") {
+            for h in &it.fontes {
+                match doc.get_entity(*h).and_then(curvas::pontos) {
+                    Some(p) => e.quebras.push(p),
                     None => e.sumidas += 1,
                 }
             }
@@ -856,6 +873,7 @@ pub(crate) struct EntradaSuperficie {
     comprimento_maximo: Option<f64>,
     /// Um grupo por item de curvas: (curvas, corrigir, folga da emenda).
     curvas: Vec<(Vec<Vec<[f64; 3]>>, bool, f64)>,
+    quebras: Vec<Vec<[f64; 3]>>,
     externos: Vec<Vec<[f64; 3]>>,
     furos: Vec<Vec<[f64; 3]>>,
     edits: Vec<ItemDwg>,
@@ -917,6 +935,9 @@ pub(crate) fn montar_entrada(e: EntradaSuperficie, fase: &std::sync::atomic::Ato
     }
     if !pontos_novos.is_empty() {
         sup.acrescentar(ItemDefinicao::pontos("edits", pontos_novos));
+    }
+    if !e.quebras.is_empty() {
+        sup.acrescentar(ItemDefinicao::linhas_de_quebra("breaklines", e.quebras));
     }
     for l in &e.externos {
         sup.acrescentar(ItemDefinicao::limite_externo("boundary", l.clone()));

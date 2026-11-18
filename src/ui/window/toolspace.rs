@@ -49,7 +49,7 @@ fn icone_do_item(tipo: &str) -> &'static [u8] {
 /// do menu do botão direito (rótulo, comando sem o nome da superfície).
 const RAMOS: &[(&str, &str, &[u8], &[(&str, &str)])] = &[
     ("Boundaries", "BOUNDARY", ic!("limites"), &[("Add...", "ADDSURFACEBOUNDARIES")]),
-    ("Breaklines", "", ic!("quebras"), &[]),
+    ("Breaklines", "BREAKLINES", ic!("quebras"), &[("Add...", "ADDSURFACEBREAKLINES")]),
     ("Contours", "CONTOURS", ic!("curvas"), &[("Add...", "ADDSURFACECONTOURS")]),
     ("DEM Files", "", ic!("dem"), &[]),
     ("Drawing Objects", "", ic!("objetos"), &[]),
@@ -71,6 +71,7 @@ const RAMOS: &[(&str, &str, &[u8], &[(&str, &str)])] = &[
 fn rotulo_item(it: &crate::civil::definicao::ItemDwg, k: usize) -> String {
     let base = match it.tipo.as_str() {
         "CONTOURS" => format!("Contours {}", k + 1),
+        "BREAKLINES" => format!("Breaklines {}", k + 1),
         "BOUNDARY_OUTER" => "Outer".into(),
         "BOUNDARY_HIDE" => "Hide".into(),
         "EDIT_ADDPOINT" => "Add Point".into(),

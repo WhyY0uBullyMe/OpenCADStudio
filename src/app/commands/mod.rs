@@ -1037,6 +1037,8 @@ inventory::submit!(crate::command::CommandRegistration {
         "-CREATESURFACE",
         "-ADDSURFACECONTOURS",
         "-ADDSURFACEBOUNDARIES",
+        "-ADDSURFACEBREAKLINES",
+        "ADDSURFACEBREAKLINES",
         "-SURFACEPROPERTIES",
         "ADDSURFACECONTOURS",
         "REBUILDSURFACE",

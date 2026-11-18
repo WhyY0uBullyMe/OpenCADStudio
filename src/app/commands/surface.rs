@@ -14,6 +14,7 @@ use iced::Task;
 const APLICAR_CURVAS: &str = "_ADDCONTOURDATA";
 const APLICAR_LIMITE: &str = "_ADDBOUNDARYDATA";
 const APLICAR_EDIT: &str = "_SURFACEEDIT";
+const APLICAR_QUEBRAS: &str = "_ADDBREAKLINEDATA";
 
 fn e_polilinha_fechada(e: &document::EntityType) -> bool {
     curvas::pontos(e).is_some_and(|p| p.len() > 3 && p.first() == p.last())
@@ -129,7 +130,7 @@ impl OpenCADStudio {
                 }
             }
             // Versões de linha de comando (como o hífen do AutoCAD): perguntam cada valor, sem janela.
-            "-CREATESURFACE" | "-ADDSURFACECONTOURS" | "-ADDSURFACEBOUNDARIES" | "-SURFACEPROPERTIES" => {
+            "-CREATESURFACE" | "-ADDSURFACECONTOURS" | "-ADDSURFACEBOUNDARIES" | "-ADDSURFACEBREAKLINES" | "-SURFACEPROPERTIES" => {
                 use crate::modules::civil::perguntas::PerguntasCommand;
                 let c = match verbo.as_str() {
                     "-CREATESURFACE" => PerguntasCommand::new("-CREATESURFACE", "CREATESURFACE", &["Surface name:"]),
@@ -142,6 +143,11 @@ impl OpenCADStudio {
                         "-ADDSURFACEBOUNDARIES",
                         "ADDSURFACEBOUNDARIES",
                         &["Surface name:", "Boundary type [OUTER/HIDE] <OUTER>:", "Layer of the closed polylines:"],
+                    ),
+                    "-ADDSURFACEBREAKLINES" => PerguntasCommand::new(
+                        "-ADDSURFACEBREAKLINES",
+                        "ADDSURFACEBREAKLINES",
+                        &["Surface name:", "Layer of the breaklines:"],
                     ),
                     _ => PerguntasCommand::new("-SURFACEPROPERTIES", "_SURFACESTYLE", &["Surface name:", "Style name:"]),
                 };
@@ -234,6 +240,45 @@ impl OpenCADStudio {
                     .or_else(|| todas.first().cloned());
                 st.superficies = todas;
                 self.civil_abrir(st);
+            }
+            // ADDSURFACEBREAKLINES [superfície] [camada]: com camada, pega as polilinhas dela (roteiro); sem, pede seleção.
+            "ADDSURFACEBREAKLINES" => match self.civil_escolher(i, args.first().copied()) {
+                Ok(n) => {
+                    if let Some(camada) = args.get(1) {
+                        let mut item = ItemDwg::novo("BREAKLINES", camada);
+                        item.fontes = self.tabs[i]
+                            .scene
+                            .document
+                            .entities()
+                            .filter(|e| e.common().layer.eq_ignore_ascii_case(camada) && e_polilinha(e))
+                            .map(|e| e.common().handle)
+                            .collect();
+                        let r = self.civil_acrescentar_item(i, &n, item);
+                        self.civil_resultado(r);
+                    } else {
+                        use crate::command::CadCommand;
+                        use crate::modules::draw::select::SelectObjectsCommand;
+                        let c = SelectObjectsCommand::filtered(
+                            "ADDSURFACEBREAKLINES",
+                            &format!("{APLICAR_QUEBRAS} {n}"),
+                            "Select breaklines (polylines, 3D polylines, lines):",
+                            e_polilinha,
+                        );
+                        self.command_line.push_info(&c.prompt());
+                        self.tabs[i].active_cmd = Some(Box::new(c));
+                    }
+                }
+                Err(e) => self.command_line.push_error(&e),
+            },
+            APLICAR_QUEBRAS => {
+                if let Some(nome) = args.first() {
+                    let mut item = ItemDwg::novo("BREAKLINES", "");
+                    item.fontes = self.tabs[i].scene.selected_handles_in_order();
+                    let r = self.civil_acrescentar_item(i, nome, item);
+                    self.tabs[i].scene.deselect_all();
+                    self.refresh_properties();
+                    self.civil_resultado(r);
+                }
             }
             APLICAR_CURVAS => {
                 // _ADDCONTOURDATA <superfície> <corrigir 0|1> <emendar m> [descrição]

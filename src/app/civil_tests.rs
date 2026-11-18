@@ -160,3 +160,31 @@ fn versoes_de_linha_de_comando_perguntam_cada_valor() {
     }
     assert_eq!(crate::civil::superficies(&app.tabs[i].scene.document)[0].estilo, "Curvas 0.5m");
 }
+
+#[test]
+fn linha_de_quebra_manda_na_cota() {
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    app.tabs[i].scene.ensure_layer("CURVAS");
+    app.tabs[i].scene.ensure_layer("QUEBRAS");
+    app.tabs[i].scene.add_entities(vec![curva(100.0, 0.0), curva(101.0, 10.0), curva(102.0, 20.0)]);
+    command(&mut app, "CREATESURFACE EG");
+    command(&mut app, "ADDSURFACECONTOURS EG CURVAS FIX=0");
+    let (_, z) = cota(&app, 50.0, 5.0).unwrap();
+    assert!((z - 100.5).abs() < 1e-6, "sem a quebra o plano dá 100,5: {z}");
+    // Crista a 103 m entre as curvas 100 e 101.
+    let mut q = document::entities::Polyline3D::from_points(vec![
+        document::types::Vector3::new(30.0, 5.0, 103.0),
+        document::types::Vector3::new(70.0, 5.0, 103.0),
+    ]);
+    q.common.layer = "QUEBRAS".into();
+    app.tabs[i].scene.add_entities(vec![EntityType::Polyline3D(q)]);
+    command(&mut app, "ADDSURFACEBREAKLINES EG QUEBRAS");
+    let s = crate::civil::superficies(&app.tabs[i].scene.document).remove(0);
+    assert!(s.itens.iter().any(|it| it.tipo == "BREAKLINES" && it.fontes.len() == 1));
+    let (_, z) = cota(&app, 50.0, 5.0).expect("cota sobre a quebra");
+    assert!((z - 103.0).abs() < 1e-6, "sobre a crista a cota é a da quebra: {z}");
+    let (_, z) = cota(&app, 40.0, 5.0).unwrap();
+    assert!((z - 103.0).abs() < 1e-6, "ao longo da crista também: {z}");
+}
