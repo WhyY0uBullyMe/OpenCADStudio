@@ -2687,6 +2687,10 @@ bg={bg_ms:.1}ms n={view_count}"
                 if let Some((nome, z)) = crate::app::civil::cota_no_ponto(&tab.civil_tins, &tab.scene.document, w.x, w.y) {
                     linhas.push(format!("{nome}\nElevation: {z:.3}"));
                 }
+                // Dentro de uma vista de perfil: estaca e cota do ponto (e do terreno e do greide ali).
+                if let Some(t) = crate::app::civil_alinhamento::dica_da_vista(&tab.scene.document, &tab.civil_tins, [w.x, w.y]) {
+                    linhas.push(t);
+                }
                 // Perto de um eixo (até 50 m): estaca e afastamento, como a dica do alinhamento no Civil 3D.
                 if let Some(t) = crate::app::civil_alinhamento::dica_do_eixo(&tab.scene.document, [w.x, w.y], 50.0) {
                     linhas.push(t);

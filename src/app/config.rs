@@ -432,6 +432,10 @@ pub struct ModelSpaceThemeConfig {
     pub selection_effect: bool,
     /// SELECTIONPREVIEW bitmask: 1 = idle, 2 = during a command, 3 = both.
     pub selection_preview: u8,
+    /// Agral CAD: o destaque ao passar o mouse sem comando já foi desligado uma vez (pedido do JP, 18/11: "tira esse
+    /// trem de ficar laranjado quando eu coloco a mão em cima"). Arquivo antigo sem o campo lê `false`.
+    #[serde(default)]
+    pub agral_previa_ajustada: bool,
     /// Maximum number of entities highlighted while a selection box is open.
     pub selection_preview_limit: u32,
     /// GRIPSIZE: grip marker half-size in pixels (1–25, default 5).
@@ -475,7 +479,9 @@ impl Default for ModelSpaceThemeConfig {
             selection_highlight_opacity: 100,
             selection_highlight_widen: 0,
             selection_effect: true,
+            // Agral CAD: ao carregar a configuração (`AppConfig::load`) o destaque parado é desligado uma vez.
             selection_preview: 3,
+            agral_previa_ajustada: false,
             selection_preview_limit: 20_000,
             grip_size: 5,
             grip_color: 0,
@@ -648,6 +654,16 @@ impl AppConfig {
     /// Read the saved config, or all-defaults when the file is missing or
     /// unreadable. Unknown or missing fields fall back to their section defaults
     /// via `#[serde(default)]`.
+    /// Preferências do Agral CAD aplicadas uma vez sobre a configuração carregada: tema Agral; destaque ao
+    /// passar o mouse só durante comandos.
+    pub fn aplicar_padroes_agral(&mut self) {
+        self.theme.migrar_para_agral();
+        if !self.model_space.agral_previa_ajustada {
+            self.model_space.selection_preview &= !1;
+            self.model_space.agral_previa_ajustada = true;
+        }
+    }
+
     pub fn load() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let body = config_path().and_then(|p| std::fs::read_to_string(p).ok());
@@ -658,7 +674,7 @@ impl AppConfig {
             .and_then(|storage| storage.get_item(WEB_CONFIG_KEY).ok().flatten());
 
         let mut c: Self = body.and_then(|body| serde_json::from_str(&body).ok()).unwrap_or_default();
-        c.theme.migrar_para_agral();
+        c.aplicar_padroes_agral();
         c
     }
 
@@ -982,6 +998,17 @@ mod tests {
         assert_eq!(value["ribbon"]["floating"][0]["extras_right"], true);
         let restored: AppConfig = serde_json::from_str(&serialized).expect("deserialize config");
         assert!(restored.ribbon == original.ribbon);
+    }
+
+    #[test]
+    fn destaque_ao_passar_o_mouse_desligado_uma_vez_ao_carregar() {
+        let mut c = AppConfig::default();
+        assert_eq!(c.model_space.selection_preview, 3);
+        c.aplicar_padroes_agral();
+        assert_eq!(c.model_space.selection_preview, 2, "parado não pinta; durante comando continua");
+        c.model_space.selection_preview = 3;
+        c.aplicar_padroes_agral();
+        assert_eq!(c.model_space.selection_preview, 3, "quem religar fica com o que escolheu");
     }
 
     #[test]

@@ -727,6 +727,9 @@ impl OpenCADStudio {
                 width,
                 chrome,
             ),
+            crate::ui::dock::PanelId::ObjectViewer => {
+                crate::ui::window::object_viewer::view(self.civil_cena.clone(), width, chrome)
+            }
             crate::ui::dock::PanelId::NodeGraph => tab.graph.panel(width, chrome),
             crate::ui::dock::PanelId::Count => crate::ui::window::count_palette::view(
                 &self.count_palette,

@@ -1679,6 +1679,9 @@ pub(super) struct OpenCADStudio {
     pub(crate) show_browser: bool,
     /// Painel Toolspace (Prospector) do Agral Civil e os ramos fechados da árvore.
     pub(crate) show_toolspace: bool,
+    /// Object Viewer: o que mostra (`None` = fechado) e se o painel está aberto.
+    pub(crate) civil_cena: Option<std::sync::Arc<crate::ui::window::object_viewer::Cena>>,
+    pub(crate) show_object_viewer: bool,
     pub(crate) toolspace_fechados: std::collections::HashSet<String>,
     /// Point Cloud Manager palette (POINTCLOUDMANAGER).
     pub(crate) pc_manager: crate::ui::window::pc_manager::PcManager,
@@ -6711,6 +6714,8 @@ impl OpenCADStudio {
             show_external_references: false,
             show_browser: false,
             show_toolspace: false,
+            civil_cena: None,
+            show_object_viewer: false,
             toolspace_fechados: Default::default(),
             pc_manager: Default::default(),
             count_palette: Default::default(),

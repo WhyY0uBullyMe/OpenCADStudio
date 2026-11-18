@@ -83,36 +83,68 @@ impl OpenCADStudio {
                 .unwrap_or(0.0);
             copias.iter_mut().for_each(|e| exagerar(e, z0, exagero));
         }
-        let camadas: std::collections::BTreeSet<String> = copias.iter().map(|e| e.common().layer.clone()).collect();
-        for c in copias.iter_mut() {
-            let cm = c.common_mut();
-            cm.handle = Handle::NULL;
-            cm.owner_handle = Handle::NULL;
-            cm.extended_data = Default::default();
+        // Cena do viewer: triângulos das malhas e linhas 3D, com a cor de cada objeto (ou da camada).
+        let doc = &self.tabs[i].scene.document;
+        let rgb = |e: &EntityType| -> [u8; 3] {
+            let indice = match &e.common().color {
+                document::Color::Index(n) if (1..=255).contains(n) => Some(*n),
+                _ => doc.layers.get(&e.common().layer).and_then(|l| match &l.color {
+                    document::Color::Index(n) if (1..=255).contains(n) => Some(*n),
+                    _ => None,
+                }),
+            };
+            indice.and_then(crate::ui::color_select::math::aci_rgb).map_or([220, 225, 230], |(r, g, b)| [r, g, b])
+        };
+        let mut cena = crate::ui::window::object_viewer::Cena::default();
+        let f3 = |x: f64, y: f64, z: f64| [x as f32, y as f32, z as f32];
+        for e in &copias {
+            let c = rgb(e);
+            match e {
+                EntityType::Mesh(m) => {
+                    for face in &m.faces {
+                        let v: Vec<[f32; 3]> = face
+                            .vertices
+                            .iter()
+                            .filter_map(|&k| m.vertices.get(k))
+                            .map(|p| f3(p.x, p.y, p.z))
+                            .collect();
+                        for k in 1..v.len().saturating_sub(1) {
+                            cena.triangulos.push(([v[0], v[k], v[k + 1]], c));
+                        }
+                    }
+                }
+                EntityType::Polyline3D(p) => {
+                    let mut v: Vec<[f32; 3]> = p.vertices.iter().map(|q| f3(q.position.x, q.position.y, q.position.z)).collect();
+                    if p.flags.closed && v.len() > 2 {
+                        v.push(v[0]);
+                    }
+                    cena.linhas.push((v, c));
+                }
+                EntityType::Line(l) => cena.linhas.push((vec![f3(l.start.x, l.start.y, l.start.z), f3(l.end.x, l.end.y, l.end.z)], c)),
+                other => {
+                    if let Some(p) = crate::civil::curvas::pontos(other) {
+                        cena.linhas.push((p.iter().map(|q| f3(q[0], q[1], q[2])).collect(), c));
+                    }
+                }
+            }
         }
-        let n = copias.len();
-        // Aba nova só para olhar (nunca troca o desenho atual).
-        self.tab_counter += 1;
-        self.tabs.push(crate::app::tab_document::DocumentTab::new_drawing(self.tab_counter));
-        let j = self.tabs.len() - 1;
-        self.active_tab = j;
-        self.apply_display_defaults(j);
-        for c in &camadas {
-            self.tabs[j].scene.ensure_layer(c);
+        if cena.triangulos.is_empty() && cena.linhas.is_empty() {
+            return Err("Nothing in the selection can be shown in 3D.".into());
         }
-        self.tabs[j].scene.add_entities(copias);
-        self.tabs[j].tab_title = if exagero != 1.0 { format!("Object Viewer (Z x{exagero})") } else { "Object Viewer".into() };
-        self.tabs[j].dirty = false;
-        self.tabs[j].civil_visualizador = true;
+        cena.titulo = if exagero != 1.0 { format!("{} objects, Z x{exagero}", handles.len()) } else { format!("{} objects", handles.len()) };
+        cena.enquadrar();
+        let (nt, nl) = (cena.triangulos.len(), cena.linhas.len());
+        self.civil_cena = Some(std::sync::Arc::new(cena));
+        // Janela própria (como no Civil 3D); se já estiver aberta, só troca o conteúdo.
+        let id = crate::ui::dock::PanelId::ObjectViewer;
+        if !self.show_object_viewer {
+            self.pallet_as_window(id);
+            self.show_object_viewer = true;
+        }
         self.command_line.push_info(&format!(
-            "Object Viewer: {n} objects{}. Orbit with Shift + middle mouse button; close the tab to go back.",
+            "Object Viewer: {nt} triangles, {nl} lines{}. Drag to orbit, wheel to zoom, double click to reset.",
             if fora > 0 { format!(" ({fora} block references left out)") } else { String::new() }
         ));
-        let mode = crate::modules::view::visual_style::mode_for_keyword("S");
-        let mut t = vec![self.apply_view_preset("SEISO"), self.dispatch_command("ZOOM E")];
-        if let Some(m) = mode {
-            t.push(Task::done(Message::SetRenderMode(m)));
-        }
-        Ok(Task::batch(t))
+        Ok(self.raise_pallet_window(id).unwrap_or_else(Task::none))
     }
 }

@@ -116,7 +116,7 @@ impl OpenCADStudio {
                 self.tabs[i].scene.deselect_all();
                 self.civil_al_resultado(r);
             }
-            "ALIGNMENTSTATIONS" => {
+            "ALIGNMENTSTATIONS" if !args.is_empty() => {
                 let r = match (args.first(), num(args.get(1), 0.0), num(args.get(2), 20.0)) {
                     (Some(n), Some(e0), Some(iv)) => self.civil_estacas(i, n, e0, iv),
                     _ => Err("Usage: ALIGNMENTSTATIONS alignment start_station [interval]".into()),

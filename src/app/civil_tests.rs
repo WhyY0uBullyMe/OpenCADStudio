@@ -312,6 +312,12 @@ fn alinhamento_perfil_greide_e_secoes() {
         let _ = e;
         assert!(faixa.iter().any(|t| t == &format!("{z:.3}")), "cota {z:.3} na faixa");
     }
+    // Mouse dentro da vista de perfil: estaca e cota do ponto, e a cota do terreno ali.
+    let v = app.civil_al_ler(i, "EIXO1").unwrap().vista.unwrap();
+    let p = [v.origem[0] + 80.0, v.origem[1] + (105.0 - v.base) * v.exagero];
+    let dica = crate::app::civil_alinhamento::dica_da_vista(&app.tabs[i].scene.document, &app.tabs[i].civil_tins, p).expect("dica na vista");
+    assert!(dica.contains("Station: 0+080.00") && dica.contains("Elevation: 105.000") && dica.contains("Terrain: 105.000"), "{dica}");
+    assert!(crate::app::civil_alinhamento::dica_da_vista(&app.tabs[i].scene.document, &app.tabs[i].civil_tins, [v.origem[0] - 50.0, p[1]]).is_none());
     // Greide horizontal a 106 m: aterro na estaca 0 (+5) e corte na 160 (-3).
     command(&mut app, "CREATEPROFILE EIXO1 0,106 160,106");
     let faixa = textos_do_bloco(&app, "AGRAL_PERFIL_EIXO1");
@@ -444,19 +450,16 @@ fn object_viewer_abre_a_superficie_em_3d_num_desenho_a_parte() {
     let s = crate::civil::superficies(&app.tabs[i].scene.document).remove(0);
     let antes = app.tabs[i].scene.document.entities().count();
     app.tabs[i].scene.select_entity(s.desenho[0], true);
+    let abas = app.tabs.len();
     command(&mut app, "OBJECTVIEWER 3");
-    let j = app.active_tab;
-    assert_ne!(i, j, "abre num desenho à parte");
-    assert_eq!(app.tabs[j].tab_title, "Object Viewer (Z x3)");
-    assert!(!app.tabs[j].dirty, "fechar não pergunta se quer salvar");
-    let malhas: Vec<_> = app.tabs[j].scene.document.entities().filter_map(|e| match e {
-        EntityType::Mesh(m) => Some(m.clone()),
-        _ => None,
-    }).collect();
-    assert!(!malhas.is_empty(), "a superfície vira malha");
-    let zmax = malhas.iter().flat_map(|m| m.vertices.iter().map(|v| v.z)).fold(f64::MIN, f64::max);
-    assert!((zmax - 106.0).abs() < 1e-6, "exagero 3x a partir de 100: 102 vira 106 ({zmax})");
-    assert_eq!(app.tabs[i].scene.document.entities().count(), antes, "o desenho original não muda");
+    assert_eq!(app.tabs.len(), abas, "abre numa janela própria, não numa aba de desenho");
+    assert_eq!(app.active_tab, i);
+    assert!(app.show_object_viewer, "painel do viewer aberto");
+    let cena = app.civil_cena.clone().expect("cena montada");
+    assert!(!cena.triangulos.is_empty(), "a superfície vira triângulos");
+    let zmax = cena.triangulos.iter().flat_map(|t| t.0.iter().map(|p| p[2])).fold(f32::MIN, f32::max);
+    assert!((zmax - 106.0).abs() < 1e-3, "exagero 3x a partir de 100: 102 vira 106 ({zmax})");
+    assert_eq!(app.tabs[i].scene.document.entities().count(), antes, "o desenho não muda");
     // A aba Home existe e é a primeira.
     let mods = crate::modules::registry::all_modules();
     assert_eq!(mods[0].id(), "home");

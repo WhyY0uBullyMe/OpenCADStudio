@@ -219,7 +219,7 @@ impl OpenCADStudio {
         }
         self.push_undo_snapshot(i, "CREATEPROFILEVIEW");
         a.superficie = s.nome;
-        a.vista = Some(VistaPerfil { origem, exagero, base: 0.0 });
+        a.vista = Some(VistaPerfil { origem, exagero, base: 0.0, topo: 0.0 });
         self.civil_al_gravar(i, &a, false)?;
         self.civil_redesenhar_alinhamento(i, nome)
     }
@@ -454,9 +454,10 @@ impl OpenCADStudio {
         if let Some(v) = a.vista.clone() {
             match &tin {
                 Some(Ok(t)) => {
-                    let (ents, resumo, base) = desenho_do_perfil(t, &al, greide.as_ref(), a.intervalo, &v, &a.nome, &a.superficie);
+                    let (ents, resumo, base, topo) = desenho_do_perfil(t, &al, greide.as_ref(), a.intervalo, &v, &a.nome, &a.superficie);
                     if let Some(vv) = a.vista.as_mut() {
                         vv.base = base;
+                        vv.topo = topo;
                     }
                     a.desenho_perfil = self.civil_al_trocar_desenho(i, "PERFIL", "PROFILEVIEW", &a.nome.clone(), &a.desenho_perfil.clone(), ents);
                     msgs.push(resumo);
@@ -526,8 +527,17 @@ fn desenho_da_planta(al: &Alinhamento, intervalo: f64) -> Vec<EntityType> {
     v
 }
 
-/// Vista de perfil: grade, terreno, greide e a faixa embaixo com estaca, cota do terreno, cota do greide e a
-/// diferença (aterro positivo, corte negativo), como nos perfis de projeto.
+/// Passo da grade de cotas: redondo, umas 8 linhas, e nunca tão apertado que os rótulos se encavalem.
+fn passo_das_cotas(faixa: f64, exagero: f64, alt: f64) -> f64 {
+    let mut dz = passo_redondo(faixa.max(1.0), 8.0);
+    while dz * exagero < alt * 2.4 {
+        dz = passo_redondo(dz * 1.01, 1.0);
+    }
+    dz
+}
+
+/// Vista de perfil: moldura, grade (cotas dos dois lados, estacas), terreno, greide e a faixa embaixo com estaca,
+/// cota do terreno e, se houver greide, cota do greide e aterro/corte, como nos perfis de projeto.
 fn desenho_do_perfil(
     tin: &Tin,
     al: &Alinhamento,
@@ -536,12 +546,12 @@ fn desenho_do_perfil(
     v: &VistaPerfil,
     nome: &str,
     superficie: &str,
-) -> (Vec<EntityType>, String, f64) {
+) -> (Vec<EntityType>, String, f64, f64) {
     let mut out = Vec::new();
     let estacas = al.estacas(intervalo);
     let tn = perfil_do_terreno(tin, al, (intervalo / 10.0).max(0.5), &estacas);
     if tn.is_empty() {
-        return (out, format!("The alignment does not cross surface '{superficie}': no terrain profile."), v.base);
+        return (out, format!("The alignment does not cross surface '{superficie}': no terrain profile."), v.base, v.topo);
     }
     let gz = |e: f64| greide.map(|g| g.cota(e));
     let mut zmin = tn.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
@@ -552,30 +562,36 @@ fn desenho_do_perfil(
             zmax = zmax.max(g.cota(*e));
         }
     }
-    let dz = passo_redondo((zmax - zmin).max(1.0), 8.0);
-    let base = (zmin / dz).floor() * dz - dz;
-    let topo = (zmax / dz).ceil() * dz + dz;
-    let (x0, y0, ex) = (v.origem[0], v.origem[1], v.exagero);
-    let px = |e: f64| x0 + (e - al.estaca_inicial);
-    let py = |z: f64| y0 + (z - base) * ex;
     let largura = al.comprimento();
     // Texto proporcional ao espaço entre estacas, para os rótulos verticais da faixa caberem lado a lado.
     let alt = (intervalo * 0.15).clamp(0.5, 8.0);
-    // Grade.
-    let mut z = base;
-    while z <= topo + 1e-9 {
-        out.push(linha([x0, py(z)], [x0 + largura, py(z)], CAMADA_GRADE));
-        out.push(texto(format!("{z:.2}"), [x0 - alt * 0.5, py(z)], alt, 0.0, false, CAMADA_TEXTO));
+    let (x0, y0, ex) = (v.origem[0], v.origem[1], v.exagero);
+    let dz = passo_das_cotas(zmax - zmin, ex, alt);
+    let base = (zmin / dz).floor() * dz - dz;
+    let topo = (zmax / dz).ceil() * dz + dz;
+    let px = |e: f64| x0 + (e - al.estaca_inicial);
+    let py = |z: f64| y0 + (z - base) * ex;
+    let rotulo = |out: &mut Vec<EntityType>, t: String, p: [f64; 2], direita: bool| {
+        out.push(texto(t, p, alt, 0.0, false, CAMADA_TEXTO));
         if let EntityType::Text(t) = out.last_mut().unwrap() {
-            t.horizontal_alignment = TextHorizontalAlignment::Right;
+            t.horizontal_alignment = if direita { TextHorizontalAlignment::Right } else { TextHorizontalAlignment::Left };
             t.vertical_alignment = TextVerticalAlignment::Middle;
             t.alignment_point = Some(t.insertion_point);
         }
+    };
+    // Grade de cotas com rótulo dos dois lados.
+    let mut z = base;
+    while z <= topo + 1e-9 {
+        out.push(linha([x0, py(z)], [x0 + largura, py(z)], CAMADA_GRADE));
+        rotulo(&mut out, format!("{z:.2}"), [x0 - alt * 0.6, py(z)], true);
+        rotulo(&mut out, format!("{z:.2}"), [x0 + largura + alt * 0.6, py(z)], false);
         z += dz;
     }
     for e in &estacas {
         out.push(linha([px(*e), py(base)], [px(*e), py(topo)], CAMADA_GRADE));
     }
+    // Moldura.
+    out.extend(polilinha(&[[x0, py(base)], [x0 + largura, py(base)], [x0 + largura, py(topo)], [x0, py(topo)], [x0, py(base)]], CAMADA_TEXTO));
     // Terreno e greide.
     out.extend(polilinha(&tn.iter().map(|(e, z)| [px(*e), py(*z)]).collect::<Vec<_>>(), CAMADA_TN));
     if let Some(g) = greide {
@@ -592,53 +608,82 @@ fn desenho_do_perfil(
                 let c = [px(p.estaca), py(p.cota)];
                 out.push(linha([c[0] - alt * 0.4, c[1] - alt * 0.4], [c[0] + alt * 0.4, c[1] + alt * 0.4], CAMADA_GREIDE));
                 out.push(linha([c[0] - alt * 0.4, c[1] + alt * 0.4], [c[0] + alt * 0.4, c[1] - alt * 0.4], CAMADA_GREIDE));
-                out.push(texto(format!("PIV {} / {:.3}", texto_da_estaca(p.estaca), p.cota), [c[0], c[1] + alt * 1.5], alt * 0.8, 0.0, true, CAMADA_GREIDE));
+                out.push(texto(format!("PVI {} / {:.3}", texto_da_estaca(p.estaca), p.cota), [c[0], c[1] + alt * 1.5], alt * 0.8, 0.0, true, CAMADA_GREIDE));
             }
         }
     }
-    // Faixa de cotas embaixo: quatro linhas de texto por estaca.
-    let linhas_faixa = ["Station", "Terrain", "Design", "Fill(+)/Cut(-)"];
-    // Linha da faixa: o rótulo vertical mais comprido ("1+234.50", "-12.345") cabe com folga.
+    // Faixa de cotas embaixo: só as linhas que têm dado.
+    let mut linhas_faixa = vec!["Station", "Terrain"];
+    if greide.is_some() {
+        linhas_faixa.extend(["Design", "Fill(+)/Cut(-)"]);
+    }
     let h = alt * 7.0;
+    let fundo = y0 - h * linhas_faixa.len() as f64;
     for (k, r) in linhas_faixa.iter().enumerate() {
-        let y = y0 - h * (k as f64 + 0.5);
-        out.push(texto(r.to_string(), [x0 - alt * 0.5, y], alt, 0.0, false, CAMADA_TEXTO));
-        if let EntityType::Text(t) = out.last_mut().unwrap() {
-            t.horizontal_alignment = TextHorizontalAlignment::Right;
-            t.vertical_alignment = TextVerticalAlignment::Middle;
-            t.alignment_point = Some(t.insertion_point);
-        }
+        rotulo(&mut out, r.to_string(), [x0 - alt * 0.6, y0 - h * (k as f64 + 0.5)], true);
         out.push(linha([x0, y0 - h * (k as f64 + 1.0)], [x0 + largura, y0 - h * (k as f64 + 1.0)], CAMADA_GRADE));
     }
+    out.push(linha([x0, y0], [x0, fundo], CAMADA_TEXTO));
+    out.push(linha([x0 + largura, y0], [x0 + largura, fundo], CAMADA_TEXTO));
+    out.push(linha([x0, fundo], [x0 + largura, fundo], CAMADA_TEXTO));
     for e in &estacas {
-        out.push(linha([px(*e), y0], [px(*e), y0 - h * linhas_faixa.len() as f64], CAMADA_GRADE));
-    }
-    out.push(linha([x0, y0], [x0, y0 - h * linhas_faixa.len() as f64], CAMADA_GRADE));
-    for e in &estacas {
+        out.push(linha([px(*e), y0], [px(*e), fundo], CAMADA_GRADE));
         let x = px(*e);
-        let zt = tin.cota_em(al.ponto_na_estaca(*e).0[0], al.ponto_na_estaca(*e).0[1]);
-        let col = [
-            texto_da_estaca(*e),
-            zt.map_or("-".into(), |z| format!("{z:.3}")),
-            gz(*e).map_or("-".into(), |z| format!("{z:.3}")),
-            match (zt, gz(*e)) {
+        let q = al.ponto_na_estaca(*e).0;
+        let zt = tin.cota_em(q[0], q[1]);
+        let mut col = vec![texto_da_estaca(*e), zt.map_or(String::new(), |z| format!("{z:.3}"))];
+        if greide.is_some() {
+            col.push(gz(*e).map_or(String::new(), |z| format!("{z:.3}")));
+            col.push(match (zt, gz(*e)) {
                 (Some(t), Some(g)) => format!("{:+.3}", g - t),
-                _ => "-".into(),
-            },
-        ];
-        for (k, c) in col.into_iter().enumerate() {
+                _ => String::new(),
+            });
+        }
+        for (k, c) in col.into_iter().enumerate().filter(|(_, c)| !c.is_empty()) {
             out.push(texto(c, [x, y0 - h * (k as f64 + 0.5)], alt * 0.8, std::f64::consts::FRAC_PI_2, true, CAMADA_TEXTO));
         }
     }
     out.push(texto(
-        format!("Profile {nome}  (surface {superficie}, V {ex}x)"),
+        format!("PROFILE {nome}   Surface: {superficie}   V {ex}x"),
         [x0 + largura / 2.0, py(topo) + alt * 2.5],
         alt * 1.6,
         0.0,
         true,
         CAMADA_TEXTO,
     ));
-    (out, format!("Profile view: elevations {zmin:.2} to {zmax:.2}, {} stations.", estacas.len()), base)
+    (out, format!("Profile view: elevations {zmin:.2} to {zmax:.2}, {} stations.", estacas.len()), base, topo)
+}
+
+/// Dica do mouse dentro da vista de perfil: estaca e cota do ponto, e as cotas do terreno e do greide ali.
+pub(crate) fn dica_da_vista(
+    doc: &document::Document,
+    tins: &std::collections::HashMap<String, (Vec<document::Handle>, Arc<Tin>)>,
+    p: [f64; 2],
+) -> Option<String> {
+    for a in crate::civil::alinhamentos(doc) {
+        let (Some(v), Some(g)) = (a.vista.as_ref(), a.geometria()) else { continue };
+        if !(v.exagero > 0.0) || v.topo <= v.base {
+            continue;
+        }
+        let (x0, y0) = (v.origem[0], v.origem[1]);
+        if p[0] < x0 || p[0] > x0 + g.comprimento() || p[1] < y0 || p[1] > y0 + (v.topo - v.base) * v.exagero {
+            continue;
+        }
+        let e = g.estaca_inicial + (p[0] - x0);
+        let z = v.base + (p[1] - y0) / v.exagero;
+        let mut t = format!("{} profile\nStation: {}\nElevation: {z:.3}", a.nome, texto_da_estaca(e));
+        let q = g.ponto_na_estaca(e).0;
+        if let Some((_, tin)) = tins.get(&a.superficie) {
+            if let Some(zt) = tin.cota_em(q[0], q[1]) {
+                t.push_str(&format!("\nTerrain: {zt:.3}"));
+            }
+        }
+        if let Some(gr) = a.greide() {
+            t.push_str(&format!("\nDesign: {:.3}", gr.cota(e)));
+        }
+        return Some(t);
+    }
+    None
 }
 
 /// Linhas de seção na planta e as vistas de seção (escala 1:1), em grade.

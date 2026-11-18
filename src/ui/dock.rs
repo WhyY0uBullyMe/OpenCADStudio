@@ -129,6 +129,8 @@ pub enum PanelId {
     Browser,
     /// Agral Civil: Toolspace (Prospector) com a árvore das superfícies.
     Toolspace,
+    /// Agral Civil: Object Viewer, os objetos selecionados em 3D numa janela própria.
+    ObjectViewer,
     /// Node library of the node graph overlay.
     NodeGraph,
     /// Regions and scans of the drawing's point clouds.
@@ -153,7 +155,7 @@ pub enum PanelId {
 
 impl PanelId {
     /// Every panel, in the order the pallet menu lists them.
-    pub const ALL: [PanelId; 18] = [
+    pub const ALL: [PanelId; 19] = [
         PanelId::Properties,
         PanelId::GraphicAttributes,
         PanelId::BlockPalette,
@@ -163,6 +165,7 @@ impl PanelId {
         PanelId::ExternalReferences,
         PanelId::Browser,
         PanelId::Toolspace,
+        PanelId::ObjectViewer,
         PanelId::NodeGraph,
         PanelId::PointCloudManager,
         PanelId::Count,
@@ -186,6 +189,7 @@ impl PanelId {
             PanelId::ExternalReferences => "External References",
             PanelId::Browser => "Browser",
             PanelId::Toolspace => "Toolspace",
+            PanelId::ObjectViewer => "Object Viewer",
             PanelId::NodeGraph => "Node Graph",
             PanelId::PointCloudManager => "Point Cloud Manager",
             PanelId::Count => "Count",
@@ -213,6 +217,7 @@ impl PanelId {
             PanelId::ExternalReferences => crate::ui::icons::FOLDER_OPEN,
             PanelId::Browser => include_bytes!("../../assets/icons/content_browser.svg"),
             PanelId::Toolspace => include_bytes!("../../assets/icons/civil_toolspace.svg"),
+            PanelId::ObjectViewer => include_bytes!("../../assets/icons/civil_objectviewer.svg"),
             PanelId::NodeGraph => crate::ui::icons::NODE_GRAPH,
             PanelId::PointCloudManager => include_bytes!("../../assets/icons/pc_attach.svg"),
             PanelId::Count => include_bytes!("../../assets/icons/data_extract.svg"),
@@ -238,6 +243,7 @@ impl PanelId {
             PanelId::ExternalReferences => 460.0,
             PanelId::Browser => 230.0,
             PanelId::Toolspace => 300.0,
+            PanelId::ObjectViewer => 720.0,
             PanelId::NodeGraph => 220.0,
             PanelId::PointCloudManager => 280.0,
             PanelId::Count => 280.0,

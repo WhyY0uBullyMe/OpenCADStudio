@@ -18,8 +18,10 @@ pub struct VistaPerfil {
     /// Canto de baixo à esquerda da vista no desenho.
     pub origem: [f64; 2],
     pub exagero: f64,
-    /// Cota da linha de baixo da grade (calculada ao desenhar; serve para ler cliques na vista).
+    /// Cota da linha de baixo e da de cima da grade (calculadas ao desenhar; servem para ler cliques e a dica do
+    /// mouse na vista).
     pub base: f64,
+    pub topo: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,6 +122,7 @@ impl AlinhamentoDwg {
             chave(&mut e, "profileview");
             e.push(XRecordEntry::new(12, XRecordValue::Point3D(v.origem[0], v.origem[1], v.base)));
             e.push(XRecordEntry::double(40, v.exagero));
+            e.push(XRecordEntry::double(41, v.topo));
         }
         if let Some(s) = &self.secoes {
             chave(&mut e, "sections");
@@ -219,8 +222,13 @@ impl AlinhamentoDwg {
                 }
                 "profileview" => {
                     let o = pt(val(k)?);
-                    a.vista = Some(VistaPerfil { origem: [o[0], o[1]], exagero: num(val(k + 1)?), base: o[2] });
+                    let mut v = VistaPerfil { origem: [o[0], o[1]], exagero: num(val(k + 1)?), base: o[2], topo: o[2] };
                     k += 2;
+                    if e.get(k).is_some_and(|x| x.code == 41) {
+                        v.topo = num(val(k)?);
+                        k += 1;
+                    }
+                    a.vista = Some(v);
                 }
                 "sections" => {
                     let o = pt(val(k)?);
@@ -287,7 +295,7 @@ mod testes {
         a.estaca_inicial = 20.0;
         a.superficie = "TN".into();
         a.pivs = vec![Piv { estaca: 20.0, cota: 955.0, curva: 0.0 }, Piv { estaca: 100.0, cota: 956.0, curva: 30.0 }];
-        a.vista = Some(VistaPerfil { origem: [500.0, -200.0], exagero: 10.0, base: 950.0 });
+        a.vista = Some(VistaPerfil { origem: [500.0, -200.0], exagero: 10.0, base: 950.0, topo: 970.0 });
         a.secoes = Some(Secoes { intervalo: 20.0, esquerda: 30.0, direita: 40.0, origem: [800.0, -200.0], colunas: 4 });
         a.desenho = vec![Handle::new(0x2A)];
         a.desenho_perfil = vec![Handle::new(0x2B), Handle::new(0x2C)];
