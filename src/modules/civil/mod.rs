@@ -73,16 +73,23 @@ impl CadModule for TinSurfaceModule {
 
     fn ribbon_groups(&self) -> &[RibbonGroup] {
         static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
-        let sup: &'static [u8] = include_bytes!("../../../assets/icons/civil_surface.svg");
         let cur: &'static [u8] = include_bytes!("../../../assets/icons/civil_contours.svg");
         let reb: &'static [u8] = include_bytes!("../../../assets/icons/civil_rebuild.svg");
         let tsp: &'static [u8] = include_bytes!("../../../assets/icons/civil_toolspace.svg");
+        let props: &'static [u8] = include_bytes!("../../../assets/icons/civil_props.svg");
+        let lim: &'static [u8] = include_bytes!("../../../assets/icons/civil_boundary.svg");
+        let maisp: &'static [u8] = include_bytes!("../../../assets/icons/civil_addpoint.svg");
+        let menosp: &'static [u8] = include_bytes!("../../../assets/icons/civil_delpoint.svg");
+        let menosl: &'static [u8] = include_bytes!("../../../assets/icons/civil_delline.svg");
+        let elevar: &'static [u8] = include_bytes!("../../../assets/icons/civil_raise.svg");
+        let extrair: &'static [u8] = include_bytes!("../../../assets/icons/civil_extract.svg");
+        let zoom: &'static [u8] = include_bytes!("../../../assets/icons/civil_zoomsurf.svg");
         GROUPS.get_or_init(|| {
             vec![
                 RibbonGroup {
                     title: "Modify",
                     tools: vec![
-                        RibbonItem::LargeTool(ferramenta("SURFACEPROPERTIES", "Surface\nProperties", sup)),
+                        RibbonItem::LargeTool(ferramenta("SURFACEPROPERTIES", "Surface\nProperties", props)),
                         RibbonItem::LargeTool(ferramenta("REBUILDSURFACE", "Rebuild", reb)),
                     ],
                 },
@@ -90,23 +97,23 @@ impl CadModule for TinSurfaceModule {
                     title: "Add Data",
                     tools: vec![
                         RibbonItem::LargeTool(ferramenta("ADDSURFACECONTOURS", "Add\nContours", cur)),
-                        RibbonItem::LargeTool(ferramenta("ADDSURFACEBOUNDARIES", "Add\nBoundaries", sup)),
+                        RibbonItem::LargeTool(ferramenta("ADDSURFACEBOUNDARIES", "Add\nBoundaries", lim)),
                     ],
                 },
                 RibbonGroup {
                     title: "Edit Surface",
                     tools: vec![
-                        RibbonItem::LargeTool(ferramenta("ADDSURFACEPOINT", "Add\nPoint", sup)),
-                        RibbonItem::LargeTool(ferramenta("DELETESURFACEPOINT", "Delete\nPoint", sup)),
-                        RibbonItem::LargeTool(ferramenta("DELETESURFACELINE", "Delete\nLine", sup)),
-                        RibbonItem::LargeTool(ferramenta("RAISELOWERSURFACE", "Raise/\nLower", reb)),
+                        RibbonItem::LargeTool(ferramenta("ADDSURFACEPOINT", "Add\nPoint", maisp)),
+                        RibbonItem::LargeTool(ferramenta("DELETESURFACEPOINT", "Delete\nPoint", menosp)),
+                        RibbonItem::LargeTool(ferramenta("DELETESURFACELINE", "Delete\nLine", menosl)),
+                        RibbonItem::LargeTool(ferramenta("RAISELOWERSURFACE", "Raise/\nLower", elevar)),
                     ],
                 },
                 RibbonGroup {
                     title: "Surface Tools",
                     tools: vec![
-                        RibbonItem::LargeTool(ferramenta("EXTRACTSURFACEOBJECTS", "Extract\nObjects", cur)),
-                        RibbonItem::LargeTool(ferramenta("ZOOMSURFACE", "Zoom\nto", sup)),
+                        RibbonItem::LargeTool(ferramenta("EXTRACTSURFACEOBJECTS", "Extract\nObjects", extrair)),
+                        RibbonItem::LargeTool(ferramenta("ZOOMSURFACE", "Zoom\nto", zoom)),
                         RibbonItem::LargeTool(ferramenta("TOOLSPACE", "Toolspace", tsp)),
                     ],
                 },

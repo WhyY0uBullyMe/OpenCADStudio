@@ -11,17 +11,52 @@ use iced::widget::{column, text};
 use iced::Element;
 use std::collections::HashSet;
 
+/// Ícones próprios do Agral CAD (16 px, `assets/agral/toolspace/`), um para cada tipo da árvore.
+macro_rules! ic {
+    ($n:literal) => {
+        include_bytes!(concat!("../../../assets/agral/toolspace/", $n, ".svg"))
+    };
+}
+pub const IC_DESENHO: &[u8] = ic!("desenho");
+pub const IC_PASTA: &[u8] = ic!("pasta");
+pub const IC_SUPERFICIE: &[u8] = ic!("superficie");
+pub const IC_DEFINICAO: &[u8] = ic!("definicao");
+
+fn icone<'a>(bytes: &'static [u8], apagado: bool) -> Element<'a, Message> {
+    if apagado {
+        crate::ui::icons::semantic_disabled(bytes, 16.0)
+    } else {
+        crate::ui::icons::semantic(bytes, 16.0)
+    }
+}
+
+fn icone_do_item(tipo: &str) -> &'static [u8] {
+    match tipo {
+        "CONTOURS" => ic!("curva_item"),
+        "BOUNDARY_OUTER" => ic!("limite_externo"),
+        "BOUNDARY_HIDE" => ic!("limite_furo"),
+        "EDIT_ADDPOINT" => ic!("edit_ponto_mais"),
+        "EDIT_DELETEPOINT" => ic!("edit_ponto_menos"),
+        "EDIT_DELETELINE" => ic!("edit_linha_menos"),
+        "EDIT_RAISELOWER" => ic!("edit_elevar"),
+        "BREAKLINES" => ic!("quebras"),
+        "POINTFILE" => ic!("arquivo_pontos"),
+        _ => ic!("objetos"),
+    }
+}
+
 /// Ramos da definição, na ordem do Civil 3D: rótulo, prefixo do tipo gravado (vazio = ainda não existe) e os itens
 /// do menu do botão direito (rótulo, comando sem o nome da superfície).
-const RAMOS: &[(&str, &str, &[(&str, &str)])] = &[
-    ("Boundaries", "BOUNDARY", &[("Add...", "ADDSURFACEBOUNDARIES")]),
-    ("Breaklines", "", &[]),
-    ("Contours", "CONTOURS", &[("Add...", "ADDSURFACECONTOURS")]),
-    ("DEM Files", "", &[]),
-    ("Drawing Objects", "", &[]),
+const RAMOS: &[(&str, &str, &[u8], &[(&str, &str)])] = &[
+    ("Boundaries", "BOUNDARY", ic!("limites"), &[("Add...", "ADDSURFACEBOUNDARIES")]),
+    ("Breaklines", "", ic!("quebras"), &[]),
+    ("Contours", "CONTOURS", ic!("curvas"), &[("Add...", "ADDSURFACECONTOURS")]),
+    ("DEM Files", "", ic!("dem"), &[]),
+    ("Drawing Objects", "", ic!("objetos"), &[]),
     (
         "Edits",
         "EDIT_",
+        ic!("edicoes"),
         &[
             ("Add Point", "ADDSURFACEPOINT"),
             ("Delete Point", "DELETESURFACEPOINT"),
@@ -29,8 +64,8 @@ const RAMOS: &[(&str, &str, &[(&str, &str)])] = &[
             ("Raise/Lower Surface...", "RAISELOWERSURFACE"),
         ],
     ),
-    ("Point Files", "", &[]),
-    ("Point Clouds", "", &[]),
+    ("Point Files", "", ic!("arquivo_pontos"), &[]),
+    ("Point Clouds", "", ic!("nuvem"), &[]),
 ];
 
 fn rotulo_item(it: &crate::civil::definicao::ItemDwg, k: usize) -> String {
@@ -92,10 +127,10 @@ pub fn view<'a>(
     let mut arvore = column![];
 
     let (linha, aberto) = dobra(nome_desenho.to_string(), "drawing", 0, fechados);
-    arvore = arvore.push(linha.view());
+    arvore = arvore.push(linha.icon(icone(IC_DESENHO, false)).view());
     if aberto {
         let (linha, abertas) = dobra(format!("Surfaces ({})", superficies.len()), "surfaces", 1, fechados);
-        arvore = arvore.push(com_menu(linha.view(), vec![("Create Surface...".into(), "CREATESURFACE".into())]));
+        arvore = arvore.push(com_menu(linha.icon(icone(IC_PASTA, false)).view(), vec![("Create Surface...".into(), "CREATESURFACE".into())]));
         if abertas {
             if superficies.is_empty() {
                 arvore = arvore.push(
@@ -117,7 +152,7 @@ fn linhas_da_superficie<'a>(s: SuperficieDwg, fechados: &HashSet<String>) -> Ele
     let chave = format!("s:{n}");
     let rotulo = if s.desatualizada { format!("{n}  (out of date)") } else { n.clone() };
     let (linha, aberta) = dobra(rotulo, &chave, 2, fechados);
-    let linha = linha.on_double_click(cmd(format!("SURFACEPROPERTIES {n}")));
+    let linha = linha.icon(icone(IC_SUPERFICIE, false)).on_double_click(cmd(format!("SURFACEPROPERTIES {n}")));
     col = col.push(com_menu(
         linha.view(),
         vec![
@@ -133,24 +168,29 @@ fn linhas_da_superficie<'a>(s: SuperficieDwg, fechados: &HashSet<String>) -> Ele
     }
     let chave_def = format!("d:{n}");
     let (linha, def_aberta) = dobra("Definition".into(), &chave_def, 3, fechados);
-    col = col.push(linha.view());
+    col = col.push(linha.icon(icone(IC_DEFINICAO, false)).view());
     if !def_aberta {
         return col.into();
     }
-    for (rotulo, prefixo, menu) in RAMOS {
+    for (rotulo, prefixo, ic, menu) in RAMOS {
         if prefixo.is_empty() {
-            col = col.push(kit::tree_row(*rotulo).depth(4).caret_room().muted(true).view());
+            col = col.push(kit::tree_row(*rotulo).depth(4).caret_room().icon(icone(ic, true)).muted(true).view());
             continue;
         }
         let itens: Vec<_> = s.itens.iter().enumerate().filter(|(_, it)| it.tipo.starts_with(prefixo)).collect();
         let chave_tipo = format!("t:{n}:{prefixo}");
         let (linha, tipo_aberto) = dobra(format!("{rotulo} ({})", itens.len()), &chave_tipo, 4, fechados);
-        col = col.push(com_menu(linha.view(), menu.iter().map(|(r, c)| (r.to_string(), format!("{c} {n}"))).collect()));
+        col = col.push(com_menu(linha.icon(icone(ic, false)).view(), menu.iter().map(|(r, c)| (r.to_string(), format!("{c} {n}"))).collect()));
         if tipo_aberto {
             for (k, it) in itens {
                 let alternar = if it.ligado { ("Turn Off".to_string(), "OFF") } else { ("Turn On".to_string(), "ON") };
                 col = col.push(com_menu(
-                    kit::tree_row(rotulo_item(it, k)).depth(5).caret_room().muted(!it.ligado).view(),
+                    kit::tree_row(rotulo_item(it, k))
+                        .depth(5)
+                        .caret_room()
+                        .icon(icone(icone_do_item(&it.tipo), !it.ligado))
+                        .muted(!it.ligado)
+                        .view(),
                     vec![
                         (alternar.0, format!("SURFACEDEFINITION {n} {k} {}", alternar.1)),
                         ("Remove from Definition".into(), format!("SURFACEDEFINITION {n} {k} REMOVE")),
