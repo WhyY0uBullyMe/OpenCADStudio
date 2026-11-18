@@ -1,6 +1,6 @@
-//! Estilos de superfície de fábrica da Agral (R15). Como no Civil 3D, o estilo padrão mostra curvas de nível
-//! (intermediárias e mestras) e a borda; os triângulos só aparecem quando o estilo pede.
-//! Intervalos 1 m e 5 m: palpite até o JP passar o padrão Agral.
+//! Estilos de superfície de fábrica da Agral (R15), os que o JP usa (18/11): curvas de 0,1, 0,5, 1, 2 e 5 m,
+//! Apagado e Borda; mais Triângulos, para conferir a malha. Padrão: Curvas 1m.
+//! Mestra a cada 5 intermediárias: palpite, a confirmar com o JP.
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Estilo {
@@ -13,11 +13,14 @@ pub struct Estilo {
 }
 
 pub const ESTILOS: &[Estilo] = &[
-    Estilo { nome: "Agral - Standard", curvas: true, intermediaria: 1.0, mestra: 5.0, borda: true, triangulos: false },
-    Estilo { nome: "Agral - Contours 0.5m and 2.5m", curvas: true, intermediaria: 0.5, mestra: 2.5, borda: true, triangulos: false },
-    Estilo { nome: "Agral - Contours and Triangles", curvas: true, intermediaria: 1.0, mestra: 5.0, borda: true, triangulos: true },
-    Estilo { nome: "Agral - Triangles", curvas: false, intermediaria: 1.0, mestra: 5.0, borda: true, triangulos: true },
-    Estilo { nome: "Agral - Border Only", curvas: false, intermediaria: 1.0, mestra: 5.0, borda: true, triangulos: false },
+    Estilo { nome: "Curvas 1m", curvas: true, intermediaria: 1.0, mestra: 5.0, borda: true, triangulos: false },
+    Estilo { nome: "Curvas 0.1m", curvas: true, intermediaria: 0.1, mestra: 0.5, borda: true, triangulos: false },
+    Estilo { nome: "Curvas 0.5m", curvas: true, intermediaria: 0.5, mestra: 2.5, borda: true, triangulos: false },
+    Estilo { nome: "Curvas 2m", curvas: true, intermediaria: 2.0, mestra: 10.0, borda: true, triangulos: false },
+    Estilo { nome: "Curvas 5m", curvas: true, intermediaria: 5.0, mestra: 25.0, borda: true, triangulos: false },
+    Estilo { nome: "Apagado", curvas: false, intermediaria: 1.0, mestra: 5.0, borda: false, triangulos: false },
+    Estilo { nome: "Borda", curvas: false, intermediaria: 1.0, mestra: 5.0, borda: true, triangulos: false },
+    Estilo { nome: "Triângulos", curvas: false, intermediaria: 1.0, mestra: 5.0, borda: true, triangulos: true },
 ];
 
 pub fn estilo(nome: &str) -> &'static Estilo {
@@ -50,7 +53,7 @@ mod testes {
 
     #[test]
     fn cotas_de_1_em_1_com_mestra_de_5() {
-        let c = cotas(estilo("Agral - Standard"), 878.6, 891.2);
+        let c = cotas(estilo("Curvas 1m"), 878.6, 891.2);
         assert_eq!(c.first(), Some(&(879.0, false)));
         assert_eq!(c.last(), Some(&(891.0, false)));
         let mestras: Vec<f64> = c.iter().filter(|x| x.1).map(|x| x.0).collect();
@@ -58,7 +61,21 @@ mod testes {
     }
 
     #[test]
+    fn curvas_de_0_1_nao_erram_a_mestra_por_arredondamento() {
+        let c = cotas(estilo("Curvas 0.1m"), 900.0, 901.0);
+        assert_eq!(c.len(), 11);
+        let mestras: Vec<f64> = c.iter().filter(|x| x.1).map(|x| x.0).collect();
+        assert_eq!(mestras.len(), 3, "{mestras:?}");
+    }
+
+    #[test]
+    fn apagado_nao_desenha_nada() {
+        let e = estilo("Apagado");
+        assert!(!e.curvas && !e.borda && !e.triangulos);
+    }
+
+    #[test]
     fn estilo_desconhecido_cai_no_padrao() {
-        assert_eq!(estilo("não existe").nome, "Agral - Standard");
+        assert_eq!(estilo("não existe").nome, "Curvas 1m");
     }
 }

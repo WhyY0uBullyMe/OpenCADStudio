@@ -4928,7 +4928,8 @@ fn start_page_content<'a>(
         .row_h(44.0)
         .report_natural_width(action_width_out.clone());
 
-    let reddit_btn = button(
+    #[allow(unused_variables)]
+    let reddit_btn: iced::widget::Button<'a, Message> = button(
         row![
             iced::widget::svg(iced::widget::svg::Handle::from_memory(include_bytes!(
                 "../../../assets/icons/reddit.svg"
@@ -4967,7 +4968,8 @@ fn start_page_content<'a>(
         })
     });
 
-    let sponsors = column![
+    #[allow(unused_variables)]
+    let sponsors: iced::widget::Column<'a, Message> = column![
         text(crate::tr!("start", "sponsors")).size(crate::ui::style::start_metrics::SECTION_TITLE),
         mouse_area(
             container(
@@ -4997,9 +4999,7 @@ fn start_page_content<'a>(
         Space::new().height(iced::Length::Fixed(crate::ui::style::start_metrics::GAP_L)),
         container(secondary_row).center_x(Fill),
         Space::new().height(iced::Length::Fixed(crate::ui::style::start_metrics::GAP_L)),
-        container(reddit_btn).center_x(Fill),
-        Space::new().height(iced::Length::Fixed(20.0)),
-        sponsors,
+        // Agral CAD: sem o Reddit e os patrocinadores do projeto original.
         Space::new().height(iced::Length::Fixed(52.0)),
     ]
     .spacing(0)
@@ -5395,6 +5395,12 @@ fn start_page_content<'a>(
         .into()
     };
 
+    // Agral CAD: a tela inicial mostra só os desenhos recentes e as ações; sem vídeos, discussões e apoiadores do
+    // projeto original.
+    let start_layout = match start_layout {
+        StartLayout::Compact => StartLayout::Compact,
+        _ => StartLayout::RecentAndWelcome,
+    };
     let body: Element<'a, Message> = match start_layout {
         StartLayout::AllPanels => {
             iced::widget::row![recent, videos_panel, welcome, discussions_panel, supporters,]
@@ -5460,18 +5466,7 @@ fn start_page_content<'a>(
                     super::StartSection::Recent,
                 )
                 .into(),
-                tab_btn(crate::tr!("start", "videos"), super::StartSection::Videos).into(),
                 tab_btn(crate::tr!("start", "welcome"), super::StartSection::Welcome).into(),
-                tab_btn(
-                    crate::tr!("start", "discussions"),
-                    super::StartSection::Discussions,
-                )
-                .into(),
-                tab_btn(
-                    crate::tr!("start", "supporters"),
-                    super::StartSection::Supporters,
-                )
-                .into(),
             ])
             .spacing(crate::ui::style::start_metrics::GAP)
             .align_y(iced::Center)

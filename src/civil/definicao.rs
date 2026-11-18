@@ -152,7 +152,7 @@ mod testes {
         let s = SuperficieDwg {
             nome: "TN".into(),
             descricao: "Terreno natural".into(),
-            estilo: "Agral - Triangles".into(),
+            estilo: "Triângulos".into(),
             comprimento_maximo: Some(50.0),
             itens: vec![
                 ItemDwg::curvas("Curvas do Global Mapper", vec![Handle::new(0x2A), Handle::new(0x2B)]),

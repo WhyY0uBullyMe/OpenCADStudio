@@ -116,6 +116,11 @@ fn main() {
             let mut res = winresource::WindowsResource::new();
             res.set_icon("packaging/windows/AppIcon.ico");
             res.set("ProductVersion", &full_version);
+            // Agral CAD: nome do programa nas propriedades do .exe e no Gerenciador de Tarefas.
+            res.set("ProductName", "Agral CAD");
+            res.set("FileDescription", "Agral CAD");
+            res.set("CompanyName", "Agral Engenharia");
+            res.set("OriginalFilename", "AgralCAD.exe");
             res.set("FileVersion", &app_version);
             if let Err(e) = res.compile() {
                 println!("cargo:warning=failed to embed Windows icon: {e}");

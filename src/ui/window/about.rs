@@ -111,7 +111,7 @@ pub(crate) fn report() -> String {
     let sys = system_info();
     #[allow(unused_mut)]
     let mut out = format!(
-        "Open CAD Studio v{}\nRevision: {}\nCommit date: {}\nProfile: {}\nFeatures: {}\n\n\
+        "Agral CAD v{} (based on Open CAD Studio, GPL 3)\nRevision: {}\nCommit date: {}\nProfile: {}\nFeatures: {}\n\n\
          [System]\nOS: {} ({} {})\nCPU: {}\nLogical processors: {}\nRAM: {} total, {} available\n",
         env!("OCS_FULL_VERSION"),
         env!("OCS_GIT_REV"),
@@ -195,8 +195,11 @@ pub fn view_window(sizing: crate::ui::modal::ModalSizing) -> Element<'static, Me
         row![
             logo,
             column![
-                text("Open CAD Studio").size(28).style(primary_style),
-                text(t!("CAD application for Architecture & Engineering"))
+                text("Agral CAD").size(28).style(primary_style),
+                text("CAD for civil and water engineering - Agral Engenharia")
+                    .size(11)
+                    .style(muted_style),
+                text("Based on Open CAD Studio (GPL 3). Source: github.com/WhyY0uBullyMe/OpenCADStudio")
                     .size(11)
                     .style(muted_style),
                 text(version.clone()).size(13),
