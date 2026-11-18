@@ -71,6 +71,31 @@ impl CadModule for CivilModule {
                     ],
                 },
                 RibbonGroup {
+                    title: "Alignment and Profile",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta(
+                            "CREATEALIGNMENT",
+                            "Create\nAlignment",
+                            include_bytes!("../../../assets/icons/civil_alignment.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "CREATEPROFILEVIEW",
+                            "Profile\nView",
+                            include_bytes!("../../../assets/icons/civil_profileview.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "CREATEPROFILE",
+                            "Design\nProfile",
+                            include_bytes!("../../../assets/icons/civil_profile.svg"),
+                        )),
+                        RibbonItem::LargeTool(ferramenta(
+                            "CREATESECTIONS",
+                            "Sections",
+                            include_bytes!("../../../assets/icons/civil_sections.svg"),
+                        )),
+                    ],
+                },
+                RibbonGroup {
                     title: "Palettes",
                     tools: vec![RibbonItem::LargeTool(ferramenta(
                         "TOOLSPACE",

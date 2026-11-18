@@ -123,6 +123,7 @@ fn dobra<'a>(rotulo: String, chave: &str, nivel: u16, fechados: &HashSet<String>
 pub fn view<'a>(
     nome_desenho: &str,
     superficies: Vec<SuperficieDwg>,
+    alinhamentos: Vec<crate::civil::alinhamentos::AlinhamentoDwg>,
     fechados: &HashSet<String>,
     width: f32,
     chrome: crate::ui::dock::Chrome,
@@ -145,6 +146,9 @@ pub fn view<'a>(
                 arvore = arvore.push(linhas_da_superficie(s, fechados));
             }
         }
+    }
+    if aberto {
+        arvore = arvore.push(linhas_dos_alinhamentos(alinhamentos, fechados));
     }
     let rodape = text("Right-click an item for its commands.").size(11);
     kit::palette(title_bar, kit::scroll_area(column![arvore, rodape].spacing(8)), width)
@@ -202,6 +206,67 @@ fn linhas_da_superficie<'a>(s: SuperficieDwg, fechados: &HashSet<String>) -> Ele
                 ));
             }
         }
+    }
+    col.into()
+}
+
+/// Ramo Alignments: cada eixo com perfis (terreno e greide), vista de perfil, linhas e vistas de seção.
+fn linhas_dos_alinhamentos<'a>(alinhamentos: Vec<crate::civil::alinhamentos::AlinhamentoDwg>, fechados: &HashSet<String>) -> Element<'a, Message> {
+    let mut col = column![];
+    let (linha, aberto) = dobra(format!("Alignments ({})", alinhamentos.len()), "alignments", 1, fechados);
+    col = col.push(com_menu(linha.icon(icone(IC_PASTA, false)).view(), vec![("Create Alignment...".into(), "CREATEALIGNMENT".into())]));
+    if !aberto {
+        return col.into();
+    }
+    if alinhamentos.is_empty() {
+        col = col.push(kit::tree_row("No alignments. Right-click Alignments > Create Alignment...").depth(2).caret_room().muted(true).view());
+    }
+    for a in alinhamentos {
+        let n = a.nome.clone();
+        let comp = a.geometria().map_or(0.0, |g| g.comprimento());
+        let (linha, aberta) = dobra(format!("{n}  ({comp:.1} m)"), &format!("a:{n}"), 2, fechados);
+        col = col.push(com_menu(
+            linha.icon(icone(ic!("alinhamento"), false)).on_double_click(cmd(format!("REBUILDALIGNMENT {n}"))).view(),
+            vec![
+                ("Profile View...".into(), format!("CREATEPROFILEVIEW {n}")),
+                ("Design Profile (PVIs)...".into(), format!("CREATEPROFILE {n}")),
+                ("Sections...".into(), format!("CREATESECTIONS {n}")),
+                ("Stations...".into(), format!("-ALIGNMENTSTATIONS")),
+                ("Rebuild".into(), format!("REBUILDALIGNMENT {n}")),
+                ("Delete".into(), format!("DELETEALIGNMENT {n}")),
+            ],
+        ));
+        if !aberta {
+            continue;
+        }
+        let sup = if a.superficie.is_empty() { "no surface".to_string() } else { a.superficie.clone() };
+        col = col.push(kit::tree_row(format!("Profile: terrain ({sup})")).depth(3).caret_room().icon(icone(ic!("perfil"), a.superficie.is_empty())).muted(a.superficie.is_empty()).view());
+        col = col.push(com_menu(
+            kit::tree_row(format!("Profile: design ({} PVIs)", a.pivs.len()))
+                .depth(3)
+                .caret_room()
+                .icon(icone(ic!("perfil"), a.pivs.is_empty()))
+                .muted(a.pivs.is_empty())
+                .view(),
+            vec![("Edit PVIs...".into(), format!("CREATEPROFILE {n}"))],
+        ));
+        col = col.push(com_menu(
+            kit::tree_row(if a.vista.is_some() { "Profile View".to_string() } else { "Profile View (none)".to_string() })
+                .depth(3)
+                .caret_room()
+                .icon(icone(ic!("perfil"), a.vista.is_none()))
+                .muted(a.vista.is_none())
+                .view(),
+            vec![("Create / Move...".into(), format!("CREATEPROFILEVIEW {n}"))],
+        ));
+        let sec = match &a.secoes {
+            Some(s) => format!("Sections (every {} m, {} + {} m)", s.intervalo, s.esquerda, s.direita),
+            None => "Sections (none)".to_string(),
+        };
+        col = col.push(com_menu(
+            kit::tree_row(sec).depth(3).caret_room().icon(icone(ic!("secoes"), a.secoes.is_none())).muted(a.secoes.is_none()).view(),
+            vec![("Create / Change...".into(), format!("CREATESECTIONS {n}"))],
+        ));
     }
     col.into()
 }

@@ -722,6 +722,7 @@ impl OpenCADStudio {
             crate::ui::dock::PanelId::Toolspace => crate::ui::window::toolspace::view(
                 &tab.tab_display_name(),
                 crate::civil::superficies(&tab.scene.document),
+                crate::civil::alinhamentos(&tab.scene.document),
                 &self.toolspace_fechados,
                 width,
                 chrome,
