@@ -26,8 +26,8 @@ impl OpenCADStudio {
         let al = a.geometria().ok_or("Alignment without geometry.")?;
         let base = self.civil_tin(i, &m.base)?;
         let comparar = self.civil_tin(i, &m.comparar)?;
-        let areas: Vec<(f64, f64, f64)> = al
-            .estacas(s.intervalo)
+        let areas: Vec<(f64, f64, f64)> = s
+            .estacas_no(&al)
             .into_iter()
             .map(|e| {
                 let (c, at) = areas_na_secao(&base, &comparar, &al, e, s.esquerda, s.direita);

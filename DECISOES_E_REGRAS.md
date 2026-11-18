@@ -50,6 +50,12 @@ Referência para trocar de agente (Claude Code, Codex ou outro) sem perder o que
     e MCP). Janelas: Compute Materials, Create Sample Lines and Section Views, Create Profile View, Dam Assembly,
     Create Corridor, Alignment Stations e Extract Objects. Campo vazio avisa e não fecha; quando o comando precisa de
     um ponto (canto da vista), ele é pedido no desenho depois do OK.
+  - Feito (abas por seleção): selecionar a planta do eixo ou o corredor abre a aba Alignment; a vista de perfil abre
+    a Profile View; as vistas de seção ou a tabela de volumes abrem a Section Views (a TIN Surface continua). Soltar a
+    seleção volta à aba de antes. Os botões agem no eixo selecionado, mesmo com vários eixos no desenho.
+    `SAMPLEMORESOURCES` (janela com uma caixa por superfície) desenha outras superfícies nas seções;
+    `EDITSAMPLELINES` move, inclui e apaga sample lines clicando na planta (ou digitando a estaca), com a linha
+    em destaque e a nova no cursor; o Compute Materials usa as mesmas estacas.
 
 ### 18/11/2026 (Agral CAD, com o Claude)
 - **Retorno do JP sobre o teste no Windows:** "abre normal", mas "tá muito mal estruturado": foi feito um plugin no

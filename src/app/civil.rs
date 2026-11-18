@@ -92,7 +92,46 @@ pub(crate) fn superficie_da_entidade(e: &EntityType) -> Option<String> {
     })
 }
 
+/// Agral CAD: a marca de um desenho civil (XDATA do Agral): tipo e nome do objeto. `SURFACE:TN` dá
+/// ("SURFACE", "TN"); `CORRIDOR:EIXO1:-1:Crista` dá ("CORRIDOR", "EIXO1").
+pub(crate) fn marca_da_entidade(e: &EntityType) -> Option<(String, String)> {
+    e.common().extended_data.records().iter().find(|r| r.application_name == APP).and_then(|r| {
+        r.values.iter().find_map(|v| match v {
+            XDataValue::String(t) => {
+                let (tipo, resto) = t.split_once(':')?;
+                let nome = if tipo == "CORRIDOR" { resto.split(':').next().unwrap_or(resto) } else { resto };
+                Some((tipo.to_string(), nome.to_string()))
+            }
+            _ => None,
+        })
+    })
+}
+
 impl OpenCADStudio {
+    /// Agral CAD: a aba de contexto da seleção e o nome do objeto: superfície, eixo (planta ou corredor), vista de
+    /// perfil ou vistas de seção (e a tabela de volumes). Só quando tudo o que está selecionado é do mesmo objeto.
+    pub(crate) fn civil_contexto(&self, i: usize) -> Option<(&'static str, String)> {
+        let scene = &self.tabs.get(i)?.scene;
+        let sel = scene.selected_handles_in_order();
+        let mut achado: Option<(&'static str, String)> = None;
+        for h in sel.iter().take(200) {
+            let (tipo, nome) = marca_da_entidade(scene.document.get_entity(*h)?)?;
+            let aba = match tipo.as_str() {
+                "SURFACE" => "tin_surface",
+                "ALIGNMENT" | "CORRIDOR" => "alignment_ctx",
+                "PROFILEVIEW" => "profileview_ctx",
+                "SECTIONS" | "VOLUMES" => "sections_ctx",
+                _ => return None,
+            };
+            match &achado {
+                None => achado = Some((aba, nome)),
+                Some((a, n)) if *a == aba && n.eq_ignore_ascii_case(&nome) => {}
+                _ => return None,
+            }
+        }
+        achado
+    }
+
     /// Seções do Properties para a superfície selecionada, como o Civil 3D mostra a "TIN Surface" (pedido do
     /// JP, 18/11): informação, estilo (editável aqui) e estatística. O resto se edita em Surface Properties.
     pub(crate) fn civil_secoes_propriedades(&self, i: usize, nome: &str) -> Option<Vec<crate::scene::model::object::PropSection>> {

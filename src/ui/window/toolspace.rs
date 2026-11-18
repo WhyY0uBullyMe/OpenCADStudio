@@ -309,7 +309,11 @@ fn linhas_dos_alinhamentos<'a>(alinhamentos: Vec<crate::civil::alinhamentos::Ali
         };
         col = col.push(com_menu(
             kit::tree_row(sec).depth(3).caret_room().icon(icone(ic!("secoes"), a.secoes.is_none())).muted(a.secoes.is_none()).view(),
-            vec![("Create / Change...".into(), format!("CREATESECTIONS {n}"))],
+            vec![
+                ("Sample Line Settings...".into(), format!("CREATESECTIONS {n}")),
+                ("Edit Sample Lines (Move, Add, Delete)".into(), format!("EDITSAMPLELINES {n}")),
+                ("Sample More Sources...".into(), format!("SAMPLEMORESOURCES {n}")),
+            ],
         ));
     }
     col.into()

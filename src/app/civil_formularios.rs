@@ -17,6 +17,7 @@ pub(crate) const FORMULARIOS: &[&str] = &[
     "CREATECORRIDOR",
     "ALIGNMENTSTATIONS",
     "EXTRACTSURFACEOBJECTS",
+    "SAMPLEMORESOURCES",
 ];
 
 fn n(v: f64) -> String {
@@ -129,6 +130,26 @@ impl OpenCADStudio {
                 ponto: None,
                 nota: "Needs the design profile (CREATEPROFILE) and the dam assembly. Builds the <ALIGNMENT>-CORR surface.".into(),
             },
+            "SAMPLEMORESOURCES" => {
+                let ja = a.secoes.as_ref().map(|s| s.fontes.clone()).unwrap_or_default();
+                let mut campos = vec![campo_eixo];
+                campos.extend(
+                    superficies
+                        .iter()
+                        .filter(|s| !s.eq_ignore_ascii_case(&a.superficie))
+                        .map(|s| Campo::marca(s, ja.iter().any(|j| j.eq_ignore_ascii_case(s)))),
+                );
+                Formulario {
+                    titulo: "Sample More Sources".into(),
+                    verbo: "SAMPLEMORESOURCES".into(),
+                    campos,
+                    ponto: None,
+                    nota: format!(
+                        "'{}' is always sampled. Checked surfaces are drawn too in every section view (layer C-SECAO-FONTE).",
+                        a.superficie
+                    ),
+                }
+            }
             "ALIGNMENTSTATIONS" => Formulario {
                 titulo: "Alignment Stations".into(),
                 verbo: "ALIGNMENTSTATIONS".into(),

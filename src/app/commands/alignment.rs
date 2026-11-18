@@ -34,6 +34,17 @@ impl OpenCADStudio {
         self.refresh_properties();
     }
 
+    /// Abre o EDITSAMPLELINES do eixo com as estacas atuais das sample lines.
+    fn civil_editar_secoes(&mut self, i: usize, eixo: &str, modo: crate::modules::civil::perfil_edicao::Modo) -> Result<(), String> {
+        let a = self.civil_al_ler(i, eixo)?;
+        let s = a.secoes.clone().ok_or_else(|| format!("Alignment '{eixo}' has no sample lines: run CREATESECTIONS first."))?;
+        let al = a.geometria().ok_or("Alignment without geometry.")?;
+        let estacas = s.estacas_no(&al);
+        let c = crate::modules::civil::secoes_edicao::SecoesEdicaoCommand::new(&a.nome, al, s.esquerda, s.direita, estacas, modo);
+        self.civil_instalar(i, Box::new(c));
+        Ok(())
+    }
+
     /// Abre o EDITPROFILE do eixo com o greide e a vista de perfil atuais.
     fn civil_editar_perfil(&mut self, i: usize, eixo: &str, modo: crate::modules::civil::perfil_edicao::Modo) -> Result<(), String> {
         let a = self.civil_al_ler(i, eixo)?;
@@ -195,6 +206,46 @@ impl OpenCADStudio {
                 }
                 Err(e) => self.command_line.push_error(&e),
             },
+            // SAMPLEMORESOURCES <eixo> <superfície>... | NONE (sem as extras). Sozinho, abre a janela.
+            "SAMPLEMORESOURCES" => {
+                let r = match args.split_first() {
+                    Some((eixo, resto)) => {
+                        let fontes: Vec<String> = resto.iter().filter(|f| !f.eq_ignore_ascii_case("NONE")).map(|f| f.to_string()).collect();
+                        self.civil_mais_fontes(i, eixo, fontes)
+                    }
+                    None => Err("Usage: SAMPLEMORESOURCES alignment surface... (or NONE)".into()),
+                };
+                self.civil_al_resultado(r);
+            }
+            // EDITSAMPLELINES [eixo]: mover, incluir e apagar sample lines clicando na planta.
+            "EDITSAMPLELINES" => match self.civil_al_escolher(i, args.first().copied()) {
+                Ok(eixo) => {
+                    let modo = args.get(1).and_then(|m| crate::modules::civil::perfil_edicao::Modo::de(m));
+                    if let Err(e) = self.civil_editar_secoes(i, &eixo, modo.unwrap_or(crate::modules::civil::perfil_edicao::Modo::Mover)) {
+                        self.command_line.push_error(&e);
+                    }
+                }
+                Err(e) => self.command_line.push_error(&e),
+            },
+            "_SETSAMPLELINES" => {
+                let editar = args.last().and_then(|a| a.strip_prefix("+EDIT=")).and_then(crate::modules::civil::perfil_edicao::Modo::de);
+                let args: Vec<&str> = args.iter().copied().filter(|a| !a.starts_with("+EDIT=")).collect();
+                let r = match args.split_first() {
+                    Some((eixo, resto)) => {
+                        let est: Option<Vec<f64>> = resto.iter().map(|t| t.replace(',', ".").parse::<f64>().ok()).collect();
+                        match est {
+                            Some(e) => self.civil_estacas_das_secoes(i, eixo, e),
+                            None => Err("Stations must be numbers.".into()),
+                        }
+                    }
+                    None => Err("Usage: _SETSAMPLELINES alignment station...".into()),
+                };
+                let ok = r.is_ok();
+                self.civil_al_resultado(r);
+                if let (true, Some(m), Some(eixo)) = (ok, editar, args.first()) {
+                    let _ = self.civil_editar_secoes(i, eixo, m);
+                }
+            }
             // Traçado por PIs (Civil 3D: Alignment Creation Tools).
             "CREATEALIGNMENTLAYOUT" => {
                 let nome = args.first().map(|s| s.to_string()).unwrap_or_else(|| self.civil_proximo_eixo(i));
@@ -404,7 +455,7 @@ impl OpenCADStudio {
                     let col = num(args.get(4), 5.0).ok_or("Columns must be a number.")?.max(1.0) as usize;
                     match args.get(5).and_then(|t| ponto2(t)) {
                         Some(o) => self
-                            .civil_definir_secoes(i, &eixo, Secoes { intervalo: iv, esquerda: esq, direita: dir, origem: o, colunas: col })
+                            .civil_definir_secoes(i, &eixo, Secoes::nova(iv, esq, dir, o, col))
                             .map(Some),
                         None => {
                             self.civil_pedir_ponto(

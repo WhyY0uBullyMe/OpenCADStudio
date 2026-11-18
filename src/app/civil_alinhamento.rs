@@ -27,6 +27,7 @@ pub(crate) const CAMADA_TEXTO: (&str, i16) = ("C-PERFIL-TEXTO", 7);
 pub(crate) const CAMADA_SECAO: (&str, i16) = ("C-SECAO-LINHA", 4);
 pub(crate) const CAMADA_CORREDOR: (&str, i16) = ("C-CORREDOR", 6);
 pub(crate) const CAMADA_SAIA: (&str, i16) = ("C-CORREDOR-SAIA", 30);
+pub(crate) const CAMADA_FONTE: (&str, i16) = ("C-SECAO-FONTE", 2);
 
 /// Nome da superfície do corredor do eixo.
 pub(crate) fn superficie_do_corredor(eixo: &str) -> String {
@@ -130,6 +131,15 @@ impl OpenCADStudio {
             return self.civil_al_ler(i, n).map(|a| a.nome);
         }
         let todos = self.civil_alinhamentos(i);
+        // Com vários, vale o do objeto selecionado (planta, perfil, seções, corredor ou tabela).
+        if todos.len() > 1 {
+            if let Some((aba, n)) = self.civil_contexto(i).filter(|(aba, _)| *aba != "tin_surface") {
+                let _ = aba;
+                if let Some(a) = todos.iter().find(|a| a.nome.eq_ignore_ascii_case(&n)) {
+                    return Ok(a.nome.clone());
+                }
+            }
+        }
         match todos.as_slice() {
             [a] => Ok(a.nome.clone()),
             [] => Err("No alignments in the drawing. Use CREATEALIGNMENT first.".into()),
@@ -264,9 +274,53 @@ impl OpenCADStudio {
             return Err(format!("Alignment '{nome}' has no surface yet: create its profile view first, or name the surface."));
         }
         self.push_undo_snapshot(i, "CREATESECTIONS");
+        // As superfícies a mais ficam; as estacas escolhidas à mão só se o intervalo não mudou.
+        let mut s = s;
+        if let Some(antes) = &a.secoes {
+            if s.fontes.is_empty() {
+                s.fontes = antes.fontes.clone();
+            }
+            if s.estacas.is_empty() && (antes.intervalo - s.intervalo).abs() < 1e-9 {
+                s.estacas = antes.estacas.clone();
+            }
+        }
         a.secoes = Some(s);
         self.civil_al_gravar(i, &a, false)?;
         self.civil_redesenhar_alinhamento(i, nome)
+    }
+
+    /// `SAMPLEMORESOURCES`: superfícies a mais desenhadas nas vistas de seção (Civil 3D: Sample More Sources).
+    pub(crate) fn civil_mais_fontes(&mut self, i: usize, nome: &str, fontes: Vec<String>) -> Result<String, String> {
+        let mut a = self.civil_al_ler(i, nome)?;
+        let mut certas = Vec::new();
+        for f in fontes {
+            let n = self.civil_escolher(i, Some(&f))?;
+            if !n.eq_ignore_ascii_case(&a.superficie) && !certas.iter().any(|c: &String| c.eq_ignore_ascii_case(&n)) {
+                certas.push(n);
+            }
+        }
+        let s = a.secoes.as_mut().ok_or_else(|| format!("Alignment '{nome}' has no sample lines: run CREATESECTIONS first."))?;
+        self.push_undo_snapshot(i, "SAMPLEMORESOURCES");
+        s.fontes = certas.clone();
+        self.civil_al_gravar(i, &a, false)?;
+        let msg = self.civil_redesenhar_alinhamento(i, nome)?;
+        Ok(if certas.is_empty() {
+            format!("Sections of '{nome}' show only '{}'. {msg}", a.superficie)
+        } else {
+            format!("Sections of '{nome}' also show: {}. {msg}", certas.join(", "))
+        })
+    }
+
+    /// `EDITSAMPLELINES`: as estacas das sample lines escolhidas à mão (vazio volta ao intervalo).
+    pub(crate) fn civil_estacas_das_secoes(&mut self, i: usize, nome: &str, estacas: Vec<f64>) -> Result<String, String> {
+        let mut a = self.civil_al_ler(i, nome)?;
+        let s = a.secoes.as_mut().ok_or_else(|| format!("Alignment '{nome}' has no sample lines: run CREATESECTIONS first."))?;
+        self.push_undo_snapshot(i, "EDITSAMPLELINES");
+        s.estacas = estacas;
+        let n = s.estacas.len();
+        self.civil_al_gravar(i, &a, false)?;
+        let msg = self.civil_redesenhar_alinhamento(i, nome)?;
+        Ok(format!("Sample lines of '{nome}': {}. {msg}", if n == 0 { "every interval".to_string() } else { format!("{n} stations") }))
     }
 
     /// `CREATEASSEMBLY`: o assembly da barragem do eixo.
@@ -438,7 +492,7 @@ impl OpenCADStudio {
         if conteudo.is_empty() {
             return Vec::new();
         }
-        for (camada, cor) in [CAMADA_EIXO, CAMADA_ESTACA, CAMADA_GRADE, CAMADA_TN, CAMADA_GREIDE, CAMADA_TEXTO, CAMADA_SECAO, CAMADA_CORREDOR] {
+        for (camada, cor) in [CAMADA_EIXO, CAMADA_ESTACA, CAMADA_GRADE, CAMADA_TN, CAMADA_GREIDE, CAMADA_TEXTO, CAMADA_SECAO, CAMADA_CORREDOR, CAMADA_FONTE] {
             if !scene.document.layers.contains(camada) && conteudo.iter().any(|e| e.common().layer == camada) {
                 scene.ensure_layer(camada);
                 if let Some(l) = scene.document.layers.get_mut(camada) {
@@ -509,7 +563,14 @@ impl OpenCADStudio {
             match &tin {
                 Some(Ok(t)) => {
                     let gabarito = corredor_ok.then_some(&asm);
-                    let (mut ents, n) = desenho_das_secoes(t, &al, greide.as_ref(), &s, gabarito);
+                    let mut extras: Vec<(String, Arc<Tin>)> = Vec::new();
+                    for f in &s.fontes {
+                        match self.civil_tin(i, f) {
+                            Ok(x) => extras.push((f.clone(), x)),
+                            Err(e) => msgs.push(format!("Source '{f}' not shown: {e}")),
+                        }
+                    }
+                    let (mut ents, n) = desenho_das_secoes(t, &al, greide.as_ref(), &s, gabarito, &extras);
                     camadas_do_template(&self.tabs[i].scene.document, &mut ents);
                     a.desenho_secoes = self.civil_al_trocar_desenho(i, "SECOES", "SECTIONS", &a.nome.clone(), &a.desenho_secoes.clone(), ents);
                     msgs.push(format!("{n} cross sections."));
@@ -754,9 +815,16 @@ pub(crate) fn dica_da_vista(
 }
 
 /// Linhas de seção na planta e as vistas de seção (escala 1:1), em grade.
-fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &Secoes, gabarito: Option<&AssemblyBarragem>) -> (Vec<EntityType>, usize) {
+fn desenho_das_secoes(
+    tin: &Tin,
+    al: &Alinhamento,
+    greide: Option<&Greide>,
+    s: &Secoes,
+    gabarito: Option<&AssemblyBarragem>,
+    extras: &[(String, Arc<Tin>)],
+) -> (Vec<EntityType>, usize) {
     let mut out = Vec::new();
-    let estacas = al.estacas(s.intervalo);
+    let estacas = s.estacas_no(al);
     let alt = (s.intervalo / 8.0).clamp(0.5, 5.0);
     let largura = s.esquerda + s.direita;
     let passo = (largura / 200.0).max(0.25);
@@ -835,6 +903,14 @@ fn desenho_das_secoes(tin: &Tin, al: &Alinhamento, greide: Option<&Greide>, s: &
         // Eixo, terreno e o ponto do greide.
         out.push(linha([px(0.0), py(base)], [px(0.0), py(base + altura)], CAMADA_EIXO));
         out.extend(polilinha(&sec.iter().map(|(o, z)| [px(*o), py(*z)]).collect::<Vec<_>>(), CAMADA_TN));
+        // Sample More Sources: as outras superfícies, cada uma com o nome na ponta direita.
+        for (nome_f, t2) in extras {
+            let s2 = secao_do_terreno(t2, al, *e, s.esquerda, s.direita, passo);
+            if let Some(ult) = s2.last() {
+                out.extend(polilinha(&s2.iter().map(|(o, z)| [px(*o), py(*z)]).collect::<Vec<_>>(), CAMADA_FONTE));
+                out.push(texto(nome_f.clone(), [px(ult.0) + alt * 0.4, py(ult.1)], alt * 0.5, 0.0, false, CAMADA_FONTE));
+            }
+        }
         if let Some(Some(c)) = corr.get(k) {
             // Gabarito do corredor (só o que cabe na largura da vista) e as áreas.
             let pts: Vec<[f64; 2]> = c

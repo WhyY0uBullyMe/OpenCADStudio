@@ -1048,6 +1048,8 @@ inventory::submit!(crate::command::CommandRegistration {
         "CREATEALIGNMENTLAYOUT",
         "COMPUTEMATERIALS",
         "EDITPROFILE",
+        "EDITSAMPLELINES",
+        "SAMPLEMORESOURCES",
         "CREATEVOLUMETABLE",
         "EXPORTMATERIALS",
         "ALIGNMENTSTATIONS",

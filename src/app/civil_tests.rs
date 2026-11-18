@@ -698,3 +698,90 @@ fn janelas_de_configuracao() {
     command(&mut app, "-CREATESECTIONS");
     assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("Alignment"));
 }
+
+/// Abas por seleção, Sample More Sources e sample lines editáveis (JP, 18/11).
+#[test]
+fn abas_por_selecao_fontes_e_sample_lines() {
+    let dir = std::env::temp_dir().join(format!("agral_ctx_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    plano(&mut app, &dir);
+    // Segunda superfície: o mesmo plano 2 m abaixo (a "limpeza").
+    let arq = dir.join("limpeza.txt");
+    let mut t = String::new();
+    let mut n = 1;
+    for x in (0..=200).step_by(20) {
+        for y in (0..=200).step_by(20) {
+            t.push_str(&format!("{n},{y},{x},{:.3},L\n", 98.0 + 0.05 * x as f64));
+            n += 1;
+        }
+    }
+    std::fs::write(&arq, t).unwrap();
+    command(&mut app, "CREATESURFACE LIMPEZA");
+    command(&mut app, &format!("ADDSURFACEPOINTFILE LIMPEZA \"{}\" PNEZD", arq.display()));
+    app.tabs[i].scene.ensure_layer("EIXO");
+    let linha = |y: f64| {
+        let mut p = LwPolyline::new();
+        p.vertices = vec![LwVertex::new(Vector2::new(20.0, y)), LwVertex::new(Vector2::new(180.0, y))];
+        p.common.layer = "EIXO".into();
+        EntityType::LwPolyline(p)
+    };
+    app.tabs[i].scene.add_entities(vec![linha(100.0), linha(150.0)]);
+    command(&mut app, "CREATEALIGNMENTENTITIES");
+    let hs: Vec<_> = app.tabs[i].scene.document.entities().filter(|e| e.common().layer == "EIXO").map(|e| e.common().handle).collect();
+    for h in &hs {
+        app.tabs[i].scene.select_entity(*h, false);
+    }
+    command(&mut app, "CREATEALIGNMENTENTITIES");
+    command(&mut app, "CREATEPROFILEVIEW EIXO2 TN 10 0,-300");
+    command(&mut app, "CREATESECTIONS EIXO2 40 30 30 3 400,0");
+
+    // Selecionar a planta do EIXO2 abre a aba Alignment, e os comandos sem nome agem nele (há dois eixos).
+    let planta = app.civil_al_ler(i, "EIXO2").unwrap().desenho[0];
+    app.tabs[i].scene.select_entity(planta, true);
+    let _ = app.update(Message::Noop);
+    assert_eq!(app.ribbon.agral_context(), Some("alignment_ctx"));
+    assert_eq!(app.civil_al_escolher(i, None).unwrap(), "EIXO2");
+    // As vistas de seção abrem a aba Section Views.
+    let secoes = app.civil_al_ler(i, "EIXO2").unwrap().desenho_secoes[0];
+    app.tabs[i].scene.deselect_all();
+    app.tabs[i].scene.select_entity(secoes, true);
+    let _ = app.update(Message::Noop);
+    assert_eq!(app.ribbon.agral_context(), Some("sections_ctx"));
+    app.tabs[i].scene.deselect_all();
+    let _ = app.update(Message::Noop);
+    assert_eq!(app.ribbon.agral_context(), None, "sem seleção, volta à aba de antes");
+
+    // Sample More Sources: a LIMPEZA aparece nas seções.
+    command(&mut app, "SAMPLEMORESOURCES EIXO2 LIMPEZA");
+    assert_eq!(app.civil_al_ler(i, "EIXO2").unwrap().secoes.unwrap().fontes, vec!["LIMPEZA".to_string()]);
+    let textos = textos_do_bloco(&app, "AGRAL_SECOES_EIXO2");
+    assert!(textos.iter().any(|t| t == "LIMPEZA"), "{textos:?}");
+    // Janela: uma caixa por superfície, a LIMPEZA marcada.
+    command(&mut app, "SAMPLEMORESOURCES EIXO2");
+    match &app.civil_dialog.as_ref().unwrap().modo {
+        crate::ui::window::civil_dialog::Modo::Formulario(f) => {
+            assert_eq!(f.comando().unwrap(), "SAMPLEMORESOURCES EIXO2 LIMPEZA");
+        }
+        _ => panic!("formulário"),
+    }
+    app.close_active_modal();
+
+    // EDITSAMPLELINES: inclui a estaca 50 digitada e continua aberto; Delete na de 40.
+    command(&mut app, "EDITSAMPLELINES EIXO2 ADD");
+    digitar(&mut app, "50");
+    let e = app.civil_al_ler(i, "EIXO2").unwrap().secoes.unwrap().estacas;
+    assert_eq!(e, vec![0.0, 40.0, 50.0, 80.0, 120.0, 160.0]);
+    assert_eq!(app.tabs[i].active_cmd.as_ref().map(|c| c.name()), Some("EDITSAMPLELINES"));
+    digitar(&mut app, "D");
+    digitar(&mut app, "41");
+    let e = app.civil_al_ler(i, "EIXO2").unwrap().secoes.unwrap().estacas;
+    assert_eq!(e, vec![0.0, 50.0, 80.0, 120.0, 160.0]);
+    digitar(&mut app, "");
+    // O Compute Materials usa as mesmas estacas.
+    command(&mut app, "COMPUTEMATERIALS EIXO2 TN LIMPEZA");
+    let a = app.civil_al_ler(i, "EIXO2").unwrap();
+    assert_eq!(app.civil_materiais_linhas(i, &a).unwrap().len(), 5);
+}

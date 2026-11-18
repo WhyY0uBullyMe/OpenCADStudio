@@ -340,7 +340,7 @@ fn panel_height(titles: bool) -> f32 {
 /// Whether module `id`'s tab is contextual: shown only while its context
 /// lasts (a block being edited).
 fn is_contextual(id: &str) -> bool {
-    matches!(id, "block_editor" | "table_cell" | "text_editor" | "tin_surface")
+    matches!(id, "block_editor" | "table_cell" | "text_editor" | "tin_surface" | "alignment_ctx" | "profileview_ctx" | "sections_ctx")
 }
 
 // ── Ribbon state ───────────────────────────────────────────────────────────
@@ -450,7 +450,9 @@ pub struct Ribbon {
     /// text is edited.
     text_editor_open: Option<usize>,
     /// Agral CAD: uma superfície selecionada; a aba que estava ativa antes da aba TIN Surface.
-    tin_surface_open: Option<usize>,
+    /// Agral CAD: a aba de contexto civil aberta (TIN Surface, Alignment, Profile View, Section Views) e a aba que
+    /// estava antes, para voltar quando a seleção acaba.
+    agral_contexto: Option<(&'static str, usize)>,
     block_testing: Option<usize>,
     /// XDWGFADECTL as the Reference slide-out shows it (negative = off).
     pub xref_fade: i32,
@@ -615,7 +617,7 @@ impl Ribbon {
             block_editing: None,
             table_cell_open: None,
             text_editor_open: None,
-            tin_surface_open: None,
+            agral_contexto: None,
             block_testing: None,
             xref_fade: 50,
             text_find: String::new(),
@@ -843,25 +845,38 @@ impl Ribbon {
         }
     }
 
-    /// Agral CAD: mostra a aba TIN Surface enquanto uma superfície está selecionada (como no Civil 3D) e volta à
-    /// aba anterior quando a seleção acaba.
-    pub fn set_tin_surface_context(&mut self, picked: bool) {
-        let Some(index) = self.modules.iter().position(|module| module.id() == "tin_surface") else {
-            return;
-        };
-        match (picked, self.tin_surface_open) {
-            (true, None) => {
-                self.tin_surface_open = Some(self.active);
-                self.active = index;
+    /// Agral CAD: mostra a aba de contexto do objeto civil selecionado (TIN Surface, Alignment, Profile View,
+    /// Section Views), como no Civil 3D, e volta à aba de antes quando a seleção acaba.
+    pub fn set_agral_context(&mut self, id: Option<&'static str>) {
+        let pos = |m: &Self, id: &str| m.modules.iter().position(|module| module.id() == id);
+        match (self.agral_contexto, id) {
+            (None, Some(novo)) => {
+                if let Some(k) = pos(self, novo) {
+                    self.agral_contexto = Some((novo, self.active));
+                    self.active = k;
+                }
             }
-            (false, Some(previous)) => {
-                self.tin_surface_open = None;
-                if self.active == index {
-                    self.active = previous.min(self.modules.len().saturating_sub(1));
+            (Some((atual, antes)), None) => {
+                self.agral_contexto = None;
+                if pos(self, atual) == Some(self.active) {
+                    self.active = antes.min(self.modules.len().saturating_sub(1));
+                }
+            }
+            (Some((atual, antes)), Some(novo)) if atual != novo => {
+                if let Some(k) = pos(self, novo) {
+                    if pos(self, atual) == Some(self.active) {
+                        self.active = k;
+                    }
+                    self.agral_contexto = Some((novo, antes));
                 }
             }
             _ => {}
         }
+    }
+
+    /// A aba de contexto civil aberta agora, se houver.
+    pub fn agral_context(&self) -> Option<&'static str> {
+        self.agral_contexto.map(|c| c.0)
     }
 
     /// Show the Text Editor tab while a multiline text is edited, and return
@@ -908,7 +923,8 @@ impl Ribbon {
         (id == "block_editor" && self.block_editing.is_none())
             || (id == "table_cell" && self.table_cell_open.is_none())
             || (id == "text_editor" && self.text_editor_open.is_none())
-            || (id == "tin_surface" && self.tin_surface_open.is_none())
+            || (matches!(id, "tin_surface" | "alignment_ctx" | "profileview_ctx" | "sections_ctx")
+                && self.agral_contexto.map(|c| c.0) != Some(id))
     }
 
     pub fn set_block_testing(&mut self, testing: bool) {

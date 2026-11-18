@@ -160,6 +160,7 @@ pub mod pivs;
 pub mod perfil_edicao;
 pub mod perguntas;
 pub mod refazer_curva;
+pub mod secoes_edicao;
 pub mod tracado;
 
 pub struct TinSurfaceModule;
@@ -314,6 +315,146 @@ impl CadModule for HomeModule {
                 }
             }
             g
+        })
+    }
+}
+
+/// Agral CAD: abas de contexto do eixo, da vista de perfil e das vistas de seção (JP, 18/11: "dependendo do que eu
+/// selecionar aparecer as ferramentas correlatas"). Os botões agem no eixo do objeto selecionado.
+macro_rules! icone {
+    ($n:literal) => {
+        include_bytes!(concat!("../../../assets/icons/", $n, ".svg"))
+    };
+}
+
+pub struct AlignmentCtxModule;
+
+impl CadModule for AlignmentCtxModule {
+    fn id(&self) -> &'static str {
+        "alignment_ctx"
+    }
+    fn title(&self) -> &'static str {
+        "Alignment"
+    }
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
+        static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+        GROUPS.get_or_init(|| {
+            vec![
+                RibbonGroup {
+                    title: "Modify",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("ALIGNMENTSTATIONS", "Stations", icone!("civil_alignment"))),
+                        RibbonItem::LargeTool(ferramenta("REBUILDALIGNMENT", "Rebuild", icone!("civil_rebuild"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Launch Pad",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("CREATEPROFILEVIEW", "Profile\nView", icone!("civil_profileview"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEPROFILE", "Design\nProfile", icone!("civil_profile"))),
+                        RibbonItem::LargeTool(ferramenta("EDITPROFILE", "Edit\nProfile", icone!("civil_editprofile"))),
+                        RibbonItem::LargeTool(ferramenta("CREATESECTIONS", "Sample\nLines", icone!("civil_sections"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEASSEMBLY", "Dam\nAssembly", icone!("civil_assembly"))),
+                        RibbonItem::LargeTool(ferramenta("CREATECORRIDOR", "Corridor", icone!("civil_corridor"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Volumes and Materials",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("COMPUTEMATERIALS", "Compute\nMaterials", icone!("civil_materials"))),
+                        RibbonItem::Tool(ferramenta("CREATEVOLUMETABLE", "Volume Table", icone!("civil_volumetable"))),
+                        RibbonItem::Tool(ferramenta("EXPORTMATERIALS", "Export to Excel", icone!("civil_exportmaterials"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Tools",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("OBJECTVIEWER", "Object\nViewer", icone!("civil_objectviewer"))),
+                        RibbonItem::LargeTool(ferramenta("TOOLSPACE", "Toolspace", icone!("civil_toolspace"))),
+                    ],
+                },
+            ]
+        })
+    }
+}
+
+pub struct ProfileViewCtxModule;
+
+impl CadModule for ProfileViewCtxModule {
+    fn id(&self) -> &'static str {
+        "profileview_ctx"
+    }
+    fn title(&self) -> &'static str {
+        "Profile View"
+    }
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
+        static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+        GROUPS.get_or_init(|| {
+            vec![
+                RibbonGroup {
+                    title: "Modify View",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("CREATEPROFILEVIEW", "Profile View\nProperties", icone!("civil_profileview"))),
+                        RibbonItem::LargeTool(ferramenta("REBUILDALIGNMENT", "Rebuild", icone!("civil_rebuild"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Profile",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("EDITPROFILE", "Edit\nProfile", icone!("civil_editprofile"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEPROFILE", "Redraw\nProfile", icone!("civil_profile"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Launch Pad",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("CREATEASSEMBLY", "Dam\nAssembly", icone!("civil_assembly"))),
+                        RibbonItem::LargeTool(ferramenta("CREATECORRIDOR", "Corridor", icone!("civil_corridor"))),
+                        RibbonItem::LargeTool(ferramenta("CREATESECTIONS", "Sample\nLines", icone!("civil_sections"))),
+                    ],
+                },
+            ]
+        })
+    }
+}
+
+pub struct SectionsCtxModule;
+
+impl CadModule for SectionsCtxModule {
+    fn id(&self) -> &'static str {
+        "sections_ctx"
+    }
+    fn title(&self) -> &'static str {
+        "Section Views"
+    }
+    fn ribbon_groups(&self) -> &[RibbonGroup] {
+        static GROUPS: std::sync::OnceLock<Vec<RibbonGroup>> = std::sync::OnceLock::new();
+        GROUPS.get_or_init(|| {
+            vec![
+                RibbonGroup {
+                    title: "Sample Lines",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("CREATESECTIONS", "Sample Line\nSettings", icone!("civil_sections"))),
+                        RibbonItem::LargeTool(ferramenta("EDITSAMPLELINES", "Edit Sample\nLines", icone!("civil_editsamplelines"))),
+                        RibbonItem::LargeTool(ferramenta("SAMPLEMORESOURCES", "Sample More\nSources", icone!("civil_samplesources"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Volumes and Materials",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("COMPUTEMATERIALS", "Compute\nMaterials", icone!("civil_materials"))),
+                        RibbonItem::Tool(ferramenta("CREATEVOLUMETABLE", "Volume Table", icone!("civil_volumetable"))),
+                        RibbonItem::Tool(ferramenta("EXPORTMATERIALS", "Export to Excel", icone!("civil_exportmaterials"))),
+                    ],
+                },
+                RibbonGroup {
+                    title: "Tools",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta("REBUILDALIGNMENT", "Rebuild", icone!("civil_rebuild"))),
+                        RibbonItem::LargeTool(ferramenta("OBJECTVIEWER", "Object\nViewer", icone!("civil_objectviewer"))),
+                    ],
+                },
+            ]
         })
     }
 }

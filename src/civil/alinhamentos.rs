@@ -32,6 +32,27 @@ pub struct Secoes {
     /// Canto de cima à esquerda da grade das vistas de seção.
     pub origem: [f64; 2],
     pub colunas: usize,
+    /// Agral CAD: superfícies a mais mostradas nas vistas de seção (Sample More Sources), além da do eixo.
+    pub fontes: Vec<String>,
+    /// Agral CAD: estacas das sample lines escolhidas à mão (EDITSAMPLELINES); vazio = a cada intervalo.
+    pub estacas: Vec<f64>,
+}
+
+impl Secoes {
+    pub fn nova(intervalo: f64, esquerda: f64, direita: f64, origem: [f64; 2], colunas: usize) -> Self {
+        Secoes { intervalo, esquerda, direita, origem, colunas, fontes: Vec::new(), estacas: Vec::new() }
+    }
+
+    /// Estacas das sample lines: as escolhidas à mão (dentro do eixo), ou a cada intervalo e nos pontos notáveis.
+    pub fn estacas_no(&self, al: &agral_civil_motor::alinhamento::Alinhamento) -> Vec<f64> {
+        if self.estacas.is_empty() {
+            return al.estacas(self.intervalo);
+        }
+        let mut v: Vec<f64> = self.estacas.iter().copied().filter(|e| *e >= al.estaca_inicial - 1e-6 && *e <= al.estaca_final() + 1e-6).collect();
+        v.sort_by(|a, b| a.total_cmp(b));
+        v.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+        v
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -147,6 +168,14 @@ impl AlinhamentoDwg {
             e.push(XRecordEntry::new(13, XRecordValue::Point3D(s.origem[0], s.origem[1], 0.0)));
             e.push(XRecordEntry::new(14, XRecordValue::Point3D(s.intervalo, s.esquerda, s.direita)));
             e.push(XRecordEntry::new(90, XRecordValue::Int32(s.colunas as i32)));
+            if !s.fontes.is_empty() {
+                e.push(XRecordEntry::new(91, XRecordValue::Int32(s.fontes.len() as i32)));
+                e.extend(s.fontes.iter().map(|f| XRecordEntry::string(300, f.clone())));
+            }
+            if !s.estacas.is_empty() {
+                e.push(XRecordEntry::new(92, XRecordValue::Int32(s.estacas.len() as i32)));
+                e.extend(s.estacas.iter().map(|v| XRecordEntry::double(40, *v)));
+            }
         }
         if let Some(a) = &self.assembly {
             chave(&mut e, "assembly");
@@ -266,8 +295,25 @@ impl AlinhamentoDwg {
                 "sections" => {
                     let o = pt(val(k)?);
                     let p = pt(val(k + 1)?);
-                    a.secoes = Some(Secoes { origem: [o[0], o[1]], intervalo: p[0], esquerda: p[1], direita: p[2], colunas: cont(val(k + 2)?).max(1) });
+                    let mut sec = Secoes::nova(p[0], p[1], p[2], [o[0], o[1]], cont(val(k + 2)?).max(1));
                     k += 3;
+                    if e.get(k).is_some_and(|x| x.code == 91) {
+                        let n = cont(val(k)?);
+                        k += 1;
+                        for _ in 0..n {
+                            sec.fontes.push(txt(val(k)?));
+                            k += 1;
+                        }
+                    }
+                    if e.get(k).is_some_and(|x| x.code == 92) {
+                        let n = cont(val(k)?);
+                        k += 1;
+                        for _ in 0..n {
+                            sec.estacas.push(num(val(k)?));
+                            k += 1;
+                        }
+                    }
+                    a.secoes = Some(sec);
                 }
                 "assembly" => {
                     let mut v = [0.0; 9];
@@ -355,7 +401,10 @@ mod testes {
         a.superficie = "TN".into();
         a.pivs = vec![Piv { estaca: 20.0, cota: 955.0, curva: 0.0 }, Piv { estaca: 100.0, cota: 956.0, curva: 30.0 }];
         a.vista = Some(VistaPerfil { origem: [500.0, -200.0], exagero: 10.0, base: 950.0, topo: 970.0 });
-        a.secoes = Some(Secoes { intervalo: 20.0, esquerda: 30.0, direita: 40.0, origem: [800.0, -200.0], colunas: 4 });
+        let mut sec = Secoes::nova(20.0, 30.0, 40.0, [800.0, -200.0], 4);
+        sec.fontes = vec!["LIMPEZA".into()];
+        sec.estacas = vec![0.0, 35.5, 80.0];
+        a.secoes = Some(sec);
         a.desenho = vec![Handle::new(0x2A)];
         a.desenho_perfil = vec![Handle::new(0x2B), Handle::new(0x2C)];
         a.assembly = Some(AssemblyBarragem { crista: 8.0, montante_esquerda: false, ..Default::default() });

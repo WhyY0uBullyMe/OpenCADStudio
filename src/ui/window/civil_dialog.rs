@@ -29,14 +29,19 @@ pub struct Campo {
     pub valor: String,
     /// Vazio: campo de texto. Com opções: lista para escolher.
     pub opcoes: Vec<String>,
+    /// Caixa de marcar: valor "1" ou "0"; marcada, entra no comando o próprio rótulo (um nome de superfície).
+    pub marca: bool,
 }
 
 impl Campo {
     pub fn texto(rotulo: &str, valor: impl ToString) -> Self {
-        Campo { rotulo: rotulo.into(), valor: valor.to_string(), opcoes: Vec::new() }
+        Campo { rotulo: rotulo.into(), valor: valor.to_string(), opcoes: Vec::new(), marca: false }
+    }
+    pub fn marca(rotulo: &str, marcada: bool) -> Self {
+        Campo { rotulo: rotulo.into(), valor: if marcada { "1" } else { "0" }.into(), opcoes: Vec::new(), marca: true }
     }
     pub fn lista(rotulo: &str, valor: impl ToString, opcoes: Vec<String>) -> Self {
-        Campo { rotulo: rotulo.into(), valor: valor.to_string(), opcoes }
+        Campo { rotulo: rotulo.into(), valor: valor.to_string(), opcoes, marca: false }
     }
 }
 
@@ -55,12 +60,23 @@ impl Formulario {
     /// O comando com os valores (entre aspas se tiverem espaço); `Err` se faltar algum.
     pub fn comando(&self) -> Result<String, String> {
         let mut partes = vec![self.verbo.clone()];
+        let aspas = |v: &str| if v.contains(' ') { format!("\"{v}\"") } else { v.to_string() };
+        let tem_marcas = self.campos.iter().any(|c| c.marca);
         for c in &self.campos {
+            if c.marca {
+                if c.valor == "1" {
+                    partes.push(aspas(&c.rotulo));
+                }
+                continue;
+            }
             let v = c.valor.trim();
             if v.is_empty() {
                 return Err(format!("Fill in '{}'.", c.rotulo));
             }
-            partes.push(if v.contains(' ') { format!("\"{v}\"") } else { v.to_string() });
+            partes.push(aspas(v));
+        }
+        if tem_marcas && !self.campos.iter().any(|c| c.marca && c.valor == "1") {
+            partes.push("NONE".into());
         }
         Ok(partes.join(" "))
     }
@@ -228,6 +244,15 @@ pub(crate) fn view(state: &State, sizing: crate::ui::modal::ModalSizing) -> Elem
         }
         Modo::Formulario(f) => {
             for (k, c) in f.campos.iter().enumerate() {
+                if c.marca {
+                    corpo = corpo.push(
+                        checkbox(c.valor == "1")
+                            .label(c.rotulo.clone())
+                            .on_toggle(move |v| m(CivilMsg::Campo(k, if v { "1" } else { "0" }.into())))
+                            .text_size(12),
+                    );
+                    continue;
+                }
                 let entrada: Element<'_, Message> = if c.opcoes.is_empty() {
                     text_input("", &c.valor)
                         .on_input(move |v| m(CivilMsg::Campo(k, v)))
