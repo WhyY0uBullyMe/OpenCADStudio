@@ -60,9 +60,8 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          # Versão: 0.<dias desde 2026-01-01>.<número da execução> (MSI aceita até 255.255.65535).
-          $dias = [int]((Get-Date) - (Get-Date '2026-01-01')).TotalDays
-          $version = "0.$dias.${{ github.run_number }}"
+          # Versão 1.0.<número da execução>: o MSI aceita até 255.255.65535 e atualiza por ordem de versão.
+          $version = "1.0.${{ github.run_number }}"
           $wix = $env:WIX
           if (-not $wix) { throw "WiX 3 não encontrado no runner" }
           & (Join-Path $wix "bin\candle.exe") -arch x64 "-dVersion=$version" `
