@@ -53,7 +53,7 @@ impl OpenCADStudio {
         let mut layers: Vec<Element<'_, Message>> = vec![workspace];
         // Auto-hiding edges draw over the drawing, below floating panels.
         for side in [DockSide::Left, DockSide::Right] {
-            if !self.dock.edge_auto_hide(side) {
+            if !self.dock_edge_overlay(side) {
                 continue;
             }
             if let Some(edge) = self.dock_edge(side, tab) {
@@ -74,7 +74,7 @@ impl OpenCADStudio {
         }
         // A docked edge's grab band, over the drawing beside its group.
         for side in [DockSide::Left, DockSide::Right] {
-            if self.dock.edge_auto_hide(side) || !self.dock_edge_expanded(side) {
+            if self.dock_edge_overlay(side) || !self.dock_edge_expanded(side) {
                 continue;
             }
             let Some(gi) = self.dock_shown_group(side) else {
@@ -283,8 +283,12 @@ impl OpenCADStudio {
         side: crate::app::config::DockSide,
         tab: &'a DocumentTab,
     ) -> Option<Element<'a, Message>> {
-        if self.dock.edge_auto_hide(side) {
+        if self.dock_edge_overlay(side) {
             self.dock_shown_group(side)?;
+            // Agral CAD: the edge's fixed group stays in place under a revealed auto-hide one.
+            if let Some(fixo) = self.dock_fixed_group(side) {
+                return self.dock_edge_com(side, fixo, true, tab);
+            }
             return Some(
                 Space::new()
                     .width(crate::ui::dock::DOCK_STRIP_W)
@@ -302,8 +306,19 @@ impl OpenCADStudio {
         tab: &'a DocumentTab,
     ) -> Option<Element<'a, Message>> {
         let gi = self.dock_shown_group(side)?;
+        self.dock_edge_com(side, gi, self.dock_edge_expanded(side), tab)
+    }
+
+    /// The edge with group `gi` beside its strip (when `expanded`).
+    fn dock_edge_com<'a>(
+        &'a self,
+        side: crate::app::config::DockSide,
+        gi: usize,
+        expanded: bool,
+        tab: &'a DocumentTab,
+    ) -> Option<Element<'a, Message>> {
         let strip = self.dock_icon_strip(side);
-        let column_el = self.dock_edge_expanded(side).then(|| {
+        let column_el = expanded.then(|| {
             let width = self.dock_group_width(side, gi);
             let group = &self.dock.groups(side)[gi];
             let mut layers: Vec<Element<'_, Message>> = Vec::new();
@@ -798,7 +813,7 @@ impl OpenCADStudio {
         tab: &'a DocumentTab,
     ) -> Element<'a, Message> {
         let panel = self.panel_body(id, width, false, tab);
-        if !self.dock.edge_auto_hide(side) {
+        if !self.dock.auto_hides(id) {
             return panel;
         }
         let divider = dock_divider(id, side);

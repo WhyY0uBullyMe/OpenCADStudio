@@ -187,6 +187,16 @@ impl OpenCADStudio {
                 }
                 self.save_config();
             }
+            DockMsg::AgralStack(id) => {
+                let abertos: Vec<(crate::app::config::DockSide, usize)> = [crate::app::config::DockSide::Left, crate::app::config::DockSide::Right]
+                    .into_iter()
+                    .flat_map(|s| self.dock_visible_groups(s).into_iter().map(move |g| (s, g)))
+                    .collect();
+                if self.dock.agral_empilhar(id, |_, s, g| abertos.contains(&(s, g))) {
+                    self.dock_peek = None;
+                    self.save_config();
+                }
+            }
             DockMsg::Close(id) => return self.dock_set_open(id, false),
             DockMsg::Hover(_)
             | DockMsg::HoverEnd(_)
@@ -968,7 +978,8 @@ impl OpenCADStudio {
     pub(crate) fn dock_panel_on_screen(&self, id: crate::ui::dock::PanelId) -> bool {
         match self.dock.location(id) {
             Some((side, group)) => {
-                self.dock_shown_group(side) == Some(group) && self.dock_edge_expanded(side)
+                (self.dock_shown_group(side) == Some(group) && self.dock_edge_expanded(side))
+                    || self.dock_fixed_group(side) == Some(group)
             }
             None if self.dock.is_separate(id) => true,
             None => !self.dock.auto_collapse(id) || self.dock_peek == Some(id),
@@ -979,6 +990,17 @@ impl OpenCADStudio {
     /// pallet when that one has none.
     pub(crate) fn dock_shown_group(&self, side: crate::app::config::DockSide) -> Option<usize> {
         let visible = self.dock_visible_groups(side);
+        // Agral CAD: a revealed auto-hide group draws over the edge's fixed one, which keeps its place.
+        if let Some(peek) = self.dock_peek {
+            if let Some((s, gi)) = self.dock.location(peek) {
+                if s == side && visible.contains(&gi) && self.dock.group_auto_hides(side, gi) {
+                    return Some(gi);
+                }
+            }
+        }
+        if let Some(fixo) = self.dock_fixed_group(side) {
+            return Some(fixo);
+        }
         let shown = self.dock.shown(side);
         if visible.contains(&shown) {
             Some(shown)
@@ -987,13 +1009,31 @@ impl OpenCADStudio {
         }
     }
 
+    /// Agral CAD: the fixed (not auto-hiding) group `side` keeps on screen beside its strip: the shown one if it is
+    /// fixed, else the first fixed group with an open pallet. `None` when every group there auto-hides.
+    pub(crate) fn dock_fixed_group(&self, side: crate::app::config::DockSide) -> Option<usize> {
+        let visible = self.dock_visible_groups(side);
+        let fixo = |gi: &usize| !self.dock.group_auto_hides(side, *gi);
+        let shown = self.dock.shown(side);
+        if visible.contains(&shown) && fixo(&shown) {
+            return Some(shown);
+        }
+        visible.into_iter().find(fixo)
+    }
+
+    /// Agral CAD: whether the group `side` draws now is an auto-hide one, drawn over the workspace (and over the
+    /// edge's fixed group, if any) instead of taking room.
+    pub(crate) fn dock_edge_overlay(&self, side: crate::app::config::DockSide) -> bool {
+        self.dock_shown_group(side).is_some_and(|gi| self.dock.group_auto_hides(side, gi))
+    }
+
     /// Whether `side` draws its shown group beside the icon strip: always,
     /// unless the edge auto-hides and none of the group's icons is hovered.
     pub(crate) fn dock_edge_expanded(&self, side: crate::app::config::DockSide) -> bool {
         let Some(gi) = self.dock_shown_group(side) else {
             return false;
         };
-        !self.dock.edge_auto_hide(side)
+        !self.dock.group_auto_hides(side, gi)
             || self
                 .dock_peek
                 .is_some_and(|e| self.dock_group_visible(side, gi).contains(&e))
@@ -1080,11 +1120,12 @@ impl OpenCADStudio {
         use crate::app::config::DockSide;
         // Runs after every message: the shown group is looked up once. An
         // edge that doesn't auto-hide always shows it.
-        let inset = |side: DockSide| match self.dock_shown_group(side) {
-            None => 0.0,
-            Some(_) if self.dock.edge_auto_hide(side) => crate::ui::dock::DOCK_STRIP_W,
+        // Agral CAD: only a fixed group takes room; an auto-hide one draws over the drawing.
+        let inset = |side: DockSide| match (self.dock_visible_groups(side).is_empty(), self.dock_fixed_group(side)) {
+            (true, _) => 0.0,
+            (false, None) => crate::ui::dock::DOCK_STRIP_W,
             // The grab band lies over the drawing: it takes no room.
-            Some(gi) => crate::ui::dock::DOCK_STRIP_W + self.dock_group_width(side, gi),
+            (false, Some(gi)) => crate::ui::dock::DOCK_STRIP_W + self.dock_group_width(side, gi),
         };
         (inset(DockSide::Left), inset(DockSide::Right))
     }

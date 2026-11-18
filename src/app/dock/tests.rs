@@ -377,9 +377,10 @@ fn dock_hover_reveals_groups_only_on_an_auto_hiding_edge() {
     let mut app = dock_app();
     app.show_browser = true;
     app.dock.left.push(DockGroup::single(PanelId::Browser));
-    // The pin on any docked pallet turns auto-hide on for its edge.
+    // Agral CAD: the pin is per group (the base program pinned the whole edge), so both groups are unpinned here.
     let _ = app.on_dock(DockMsg::AutoCollapseToggle(PanelId::Properties));
-    assert!(app.dock.edge_auto_hide(DockSide::Left));
+    let _ = app.on_dock(DockMsg::AutoCollapseToggle(PanelId::Browser));
+    assert!(app.dock.auto_hides(PanelId::Properties) && app.dock.auto_hides(PanelId::Browser));
     assert!(!app.dock.edge_auto_hide(DockSide::Right));
     assert!(!app.dock_edge_expanded(DockSide::Left));
     // Hovering an icon flies its group out.
@@ -400,6 +401,7 @@ fn dock_hover_reveals_groups_only_on_an_auto_hiding_edge() {
     assert!(!app.dock_edge_expanded(DockSide::Left));
     // Without auto-hide, hovering does not switch groups (clicks do).
     let _ = app.on_dock(DockMsg::AutoCollapseToggle(PanelId::Properties));
+    let _ = app.on_dock(DockMsg::AutoCollapseToggle(PanelId::Browser));
     let _ = app.on_dock(DockMsg::Hover(PanelId::Properties));
     assert_eq!(app.dock_shown_group(DockSide::Left), Some(1));
     assert!(app.dock_edge_expanded(DockSide::Left));
@@ -503,7 +505,7 @@ fn dock_and_window_changes_set_the_viewport_size_before_layout() {
     let _ = app.update(Message::Dock(DockMsg::AutoCollapseToggle(
         PanelId::Properties,
     )));
-    assert!(app.dock.edge_auto_hide(DockSide::Left));
+    assert!(app.dock.auto_hides(PanelId::Properties));
     assert_eq!(vp(&app), (w1 + room1 - room(&app), h0));
     // A window resize changes it by as much as the window (no pan there).
     let (w2, h2) = vp(&app);
@@ -724,7 +726,7 @@ fn docking_or_auto_hiding_keeps_the_drawing_in_place() {
     let _ = app.update(Message::Dock(DockMsg::AutoCollapseToggle(
         PanelId::Properties,
     )));
-    assert!(app.dock.edge_auto_hide(DockSide::Left));
+    assert!(app.dock.auto_hides(PanelId::Properties));
     assert_ne!(app.dock_edge_insets(), before);
     assert!(close(target_screen_x(&app, probe), at));
     // Revealing the auto-hidden group draws over the drawing: no change.
@@ -3088,4 +3090,37 @@ fn a_group_grip_lights_only_after_its_latest_hover_rests() {
     let _ = app.on_dock(DockMsg::GripLit(grip.0, grip.1, third));
     let _ = app.on_dock(DockMsg::GroupGrab(grip.0, grip.1));
     assert_eq!((app.dock_grip_hover, app.dock_grip_lit), (None, None));
+}
+
+/// Agral CAD (JP, 18/11): no mesmo lado, o Properties fixo ocupa o seu espaço e o Toolspace recolhível abre por
+/// cima ao passar o mouse, sem tirar o Properties do lugar.
+#[test]
+fn agral_fixo_e_recolhivel_no_mesmo_lado() {
+    use crate::app::config::DockSide;
+    use crate::ui::dock::{DockMsg, PanelId};
+    let mut app = dock_app();
+    app.show_toolspace = true;
+    app.dock.dock(PanelId::Toolspace, DockSide::Left, usize::MAX);
+    let _ = app.on_dock(DockMsg::AutoCollapseToggle(PanelId::Toolspace));
+    assert!(app.dock.auto_hides(PanelId::Toolspace) && !app.dock.auto_hides(PanelId::Properties));
+    let gi_prop = app.dock.location(PanelId::Properties).unwrap().1;
+    assert_eq!(app.dock_fixed_group(DockSide::Left), Some(gi_prop));
+    let espaco = app.dock_edge_insets().0;
+    assert!(espaco > crate::ui::dock::DOCK_STRIP_W, "o Properties fixo ocupa espaço");
+    assert!(!app.dock_edge_overlay(DockSide::Left));
+    // Passa o mouse no ícone do Toolspace: abre por cima, o Properties continua na tela e o espaço não muda.
+    let _ = app.on_dock(DockMsg::Hover(PanelId::Toolspace));
+    let _ = app.on_dock(DockMsg::HoverSettled(app.dock_hover_gen));
+    assert_eq!(app.dock_peek, Some(PanelId::Toolspace));
+    assert!(app.dock_edge_overlay(DockSide::Left));
+    assert!(app.dock_panel_on_screen(PanelId::Toolspace) && app.dock_panel_on_screen(PanelId::Properties));
+    assert_eq!(app.dock_edge_insets().0, espaco);
+    // Sai: o Toolspace recolhe, o Properties fica.
+    let _ = app.on_dock(DockMsg::HoverExit);
+    let _ = app.on_dock(DockMsg::HoverSettled(app.dock_hover_gen));
+    assert!(!app.dock_panel_on_screen(PanelId::Toolspace) && app.dock_panel_on_screen(PanelId::Properties));
+    // Empilhar: os dois fixos dividem o lado.
+    let _ = app.on_dock(DockMsg::AgralStack(PanelId::Toolspace));
+    assert_eq!(app.dock.location(PanelId::Toolspace), app.dock.location(PanelId::Properties));
+    assert!(app.dock_panel_on_screen(PanelId::Toolspace) && app.dock_panel_on_screen(PanelId::Properties));
 }

@@ -1171,7 +1171,7 @@ fn a_collapsed_auto_hiding_edge_does_not_swallow_escape() {
     let (mut app, test) = lookup_choice_tab();
     open_lookup_list(&mut app, test);
     let _ = app.on_dock(DockMsg::AutoCollapseToggle(PanelId::Properties));
-    assert!(app.dock.edge_auto_hide(DockSide::Left));
+    assert!(app.dock.auto_hides(PanelId::Properties));
     assert_eq!(app.dock_peek, None);
     assert!(!app.dock_edge_expanded(DockSide::Left));
     assert!(

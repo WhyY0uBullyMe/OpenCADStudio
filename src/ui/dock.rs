@@ -24,6 +24,9 @@ pub enum DockMsg {
     WidthReset(PanelId),
     /// Toggle `panel`'s auto-collapse (pin) behavior.
     AutoCollapseToggle(PanelId),
+    /// Agral CAD: stack `panel` with the fixed pallet of its side (sharing the edge height), or take it out of
+    /// its stack into a group of its own.
+    AgralStack(PanelId),
     /// Close / hide `panel`.
     Close(PanelId),
     /// The pointer entered a pallet's strip icon or floating frame:
@@ -306,6 +309,11 @@ pub struct DockGroup {
     /// of its pallets' own widths" (see [`DockState::group_width`]).
     #[serde(default)]
     pub width: f32,
+    /// Agral CAD: fixo (`Some(false)`) ou recolhível (`Some(true)`) só este grupo; `None` segue a borda. Um grupo
+    /// fixo ocupa o seu espaço; um recolhível só mostra o ícone e abre por cima ao passar o mouse, sem tirar o fixo
+    /// do lugar (JP, 18/11: "definir individualmente fixa ou retrátil").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recolhe: Option<bool>,
 }
 
 impl DockGroup {
@@ -319,6 +327,7 @@ impl DockGroup {
             panels,
             weights,
             width: 0.0,
+            recolhe: None,
         }
     }
 
@@ -368,6 +377,8 @@ enum GroupRepr {
         weights: Vec<f32>,
         #[serde(default)]
         width: f32,
+        #[serde(default)]
+        recolhe: Option<bool>,
     },
 }
 
@@ -387,10 +398,12 @@ where
                 panels,
                 weights,
                 width,
+                recolhe,
             } => groups.push(DockGroup {
                 panels,
                 weights,
                 width,
+                recolhe,
             }),
         }
     }
@@ -778,22 +791,55 @@ impl DockState {
         }
     }
 
-    /// Whether `id` auto-hides where it is: by its edge's setting when
-    /// docked, by its own when floating.
+    /// Agral CAD: `AgralStack`. In a stack: out to a group of its own beside it. Alone: into the side's fixed
+    /// group (else the first other group there), at the bottom, so the two share the edge height. Returns
+    /// whether the layout changed.
+    pub fn agral_empilhar(&mut self, id: PanelId, aberto: impl Fn(&Self, DockSide, usize) -> bool) -> bool {
+        let Some((side, gi)) = self.location(id) else { return false };
+        if self.groups(side)[gi].panels.len() > 1 {
+            return self.dock(id, side, gi + 1);
+        }
+        // Grupo aberto no mesmo lado (o fixo primeiro); se não houver, o do outro lado.
+        let outro = match side {
+            DockSide::Left => DockSide::Right,
+            DockSide::Right => DockSide::Left,
+        };
+        for lado in [side, outro] {
+            let n = self.groups(lado).len();
+            let cand: Vec<usize> = (0..n).filter(|g| !(lado == side && *g == gi) && aberto(self, lado, *g)).collect();
+            if let Some(g) = cand.iter().copied().find(|g| !self.group_auto_hides(lado, *g)).or_else(|| cand.first().copied()) {
+                let fim = self.groups(lado)[g].panels.len();
+                return self.join_group(id, lado, g, fim);
+            }
+        }
+        false
+    }
+
+    /// Agral CAD: whether group `gi` of `side` auto-hides: its own setting, else its edge's.
+    pub fn group_auto_hides(&self, side: DockSide, gi: usize) -> bool {
+        self.groups(side).get(gi).and_then(|g| g.recolhe).unwrap_or_else(|| self.edge_auto_hide(side))
+    }
+
+    /// Whether `id` auto-hides where it is: by its group's setting when
+    /// docked (Agral CAD: per group, falling back to the edge), by its own when floating.
     pub fn auto_hides(&self, id: PanelId) -> bool {
         match self.location(id) {
-            Some((side, _)) => self.edge_auto_hide(side),
+            Some((side, gi)) => self.group_auto_hides(side, gi),
             None => self.auto_collapse(id),
         }
     }
 
-    /// Flip auto-hide where `id` is: its whole edge when docked, the pallet
-    /// itself when floating. Returns the new state.
+    /// Flip auto-hide where `id` is: its group when docked (Agral CAD; the
+    /// base program flipped the whole edge), the pallet itself when floating.
+    /// Returns the new state.
     pub fn toggle_auto_hide(&mut self, id: PanelId) -> bool {
         let on = !self.auto_hides(id);
         match self.location(id) {
-            Some((DockSide::Left, _)) => self.auto_hide.0 = on,
-            Some((DockSide::Right, _)) => self.auto_hide.1 = on,
+            Some((side, gi)) => {
+                if let Some(g) = self.groups_mut(side).get_mut(gi) {
+                    g.recolhe = Some(on);
+                }
+            }
             None => self.set_auto_collapse(id, on),
         }
         on
@@ -1433,6 +1479,11 @@ pub fn title_bar_with<'a>(
             chrome.auto_collapse,
             tooltip::Position::Bottom,
         ));
+        bar = bar.push(title_tip(
+            title_button(title_icon(crate::ui::icons::AGRAL_STACK), Message::Dock(DockMsg::AgralStack(id))),
+            "Stack with / unstack from the pallets on this side".to_string(),
+            tooltip::Position::Bottom,
+        ));
     }
     if let Some(extra) = extra {
         bar = bar.push(extra);
@@ -1957,6 +2008,29 @@ mod tests {
         assert!(state.toggle_auto_hide(PanelId::Count));
         assert!(state.auto_hides(PanelId::Count));
         assert!(!state.edge_auto_hide(DockSide::Right));
+    }
+
+    /// Agral CAD: fixo ou recolhível por grupo, e empilhar dois painéis no mesmo lado.
+    #[test]
+    fn agral_recolhe_por_grupo_e_empilha() {
+        let mut state = DockState::default();
+        state.dock(PanelId::Toolspace, DockSide::Left, usize::MAX);
+        assert!(state.toggle_auto_hide(PanelId::Toolspace));
+        assert!(state.auto_hides(PanelId::Toolspace));
+        assert!(!state.auto_hides(PanelId::Properties), "o Properties no mesmo lado continua fixo");
+        assert!(!state.edge_auto_hide(DockSide::Left));
+        // Empilhar: o Toolspace vai para o grupo fixo do Properties; de novo, sai para um grupo dele.
+        assert!(state.agral_empilhar(PanelId::Toolspace, |_, _, _| true));
+        assert_eq!(state.location(PanelId::Toolspace), state.location(PanelId::Properties));
+        assert_eq!(state.groups(DockSide::Left)[0].panels, vec![PanelId::Properties, PanelId::Toolspace]);
+        assert!(state.agral_empilhar(PanelId::Toolspace, |_, _, _| true));
+        assert_ne!(state.location(PanelId::Toolspace), state.location(PanelId::Properties));
+        // Grava e lê o fixo/recolhível do grupo.
+        let g = &mut state.left[0];
+        g.recolhe = Some(true);
+        let json = serde_json::to_string(&state).unwrap();
+        let lido: DockState = serde_json::from_str(&json).unwrap();
+        assert_eq!(lido.left[0].recolhe, Some(true));
     }
 
     #[test]

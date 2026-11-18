@@ -105,10 +105,11 @@ impl OpenCADStudio {
                 _ => DockSide::Right,
             };
             self.dock.dock(PanelId::Toolspace, lado, 0);
-            match lado {
-                DockSide::Left => self.dock.auto_hide.0 = true,
-                DockSide::Right => self.dock.auto_hide.1 = true,
+            // Só o grupo do Toolspace recolhe (o fixar é por grupo no Agral CAD).
+            if !self.dock.auto_hides(PanelId::Toolspace) {
+                self.dock.toggle_auto_hide(PanelId::Toolspace);
             }
+            let _ = DockSide::Left;
             self.save_config();
         }
         // Aberto sozinho (ao criar ou montar superfície) fica escondido na borda; pelo comando TOOLSPACE, aparece.

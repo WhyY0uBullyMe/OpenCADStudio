@@ -40,6 +40,11 @@ Referência para trocar de agente (Claude Code, Codex ou outro) sem perder o que
   - Feito: método trazido para este repositório (AGENTS.md, CLAUDE.md, PREMISSAS_PROJETOS.md, este arquivo, skills em
     `.claude/skills`, mapa em `docs/agral/`, specs em `docs/agral/specs/`). Este arquivo passa a ser o registro do
     Agral CAD; o do Hydrus fica como histórico.
+  - Feito (painéis): o pino agora é por grupo de painéis, não pela borda inteira. Grupo fixo ocupa o seu espaço;
+    grupo recolhível só mostra o ícone e abre por cima ao passar o mouse, sem tirar o fixo do lugar nem mexer no
+    desenho. Botão novo na barra de título ("Stack"): empilha o painel com o fixo do lado (os dois dividem a altura,
+    com divisor arrastável) e, de novo, desempilha. Três testes do programa base esperavam o pino da borda inteira e
+    foram atualizados para a regra nova.
 
 ### 18/11/2026 (Agral CAD, com o Claude)
 - **Retorno do JP sobre o teste no Windows:** "abre normal", mas "tá muito mal estruturado": foi feito um plugin no
