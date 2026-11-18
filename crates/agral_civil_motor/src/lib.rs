@@ -5,6 +5,7 @@
 
 pub mod alinhamento;
 pub mod correcao;
+pub mod corredor;
 pub mod diagnostico;
 pub mod emenda;
 pub mod landxml;
