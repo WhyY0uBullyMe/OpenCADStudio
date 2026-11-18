@@ -97,6 +97,88 @@ impl OpenCADStudio {
                     self.civil_al_resultado(if erro { Err(texto) } else { Ok(texto) });
                 }
             }
+            // Compute Materials (spec 004): terreno x corredor ou qualquer par de superfícies, nas linhas de seção.
+            "COMPUTEMATERIALS" if args.len() >= 3 => {
+                let r = match (num(args.get(3), 1.0), num(args.get(4), 1.0)) {
+                    (Some(fc), Some(fa)) => self.civil_computar_materiais(i, args[0], args[1], args[2], fc, fa),
+                    _ => Err("Usage: COMPUTEMATERIALS alignment base_surface compare_surface [cut_factor] [fill_factor]".into()),
+                };
+                self.civil_al_resultado(r);
+            }
+            "COMPUTEMATERIALS" => {
+                let eixo = args.first().map(|s| s.to_string()).or_else(|| self.civil_al_escolher(i, None).ok());
+                let a = eixo.as_deref().and_then(|e| self.civil_al_ler(i, e).ok());
+                let base = a.as_ref().map(|a| a.materiais.as_ref().map_or(a.superficie.clone(), |m| m.base.clone())).filter(|s| !s.is_empty());
+                let comparar = a.as_ref().and_then(|a| {
+                    a.materiais.as_ref().map(|m| m.comparar.clone()).or_else(|| {
+                        let c = crate::app::civil_alinhamento::superficie_do_corredor(&a.nome);
+                        self.civil_escolher(i, Some(&c)).ok()
+                    })
+                });
+                let (fc, fa) = a.as_ref().and_then(|a| a.materiais.as_ref()).map_or((1.0, 1.0), |m| (m.fator_corte, m.fator_aterro));
+                let padrao = |t: &str, v: Option<String>| match v {
+                    Some(v) => format!("{t} <{v}>:"),
+                    None => format!("{t}:"),
+                };
+                let mut perguntas = Vec::new();
+                let verbo = match (&eixo, args.first()) {
+                    (Some(e), Some(_)) => format!("COMPUTEMATERIALS {e}"),
+                    _ => {
+                        perguntas.push(padrao("Alignment name", eixo.clone()));
+                        "COMPUTEMATERIALS".into()
+                    }
+                };
+                perguntas.push(padrao("Base surface (existing ground)", base));
+                perguntas.push(padrao("Comparison surface (design, corridor)", comparar));
+                perguntas.push(format!("Cut factor <{fc}>:"));
+                perguntas.push(format!("Fill factor <{fa}>:"));
+                let c = crate::modules::civil::perguntas::PerguntasCommand::com("COMPUTEMATERIALS", &verbo, perguntas);
+                self.civil_instalar(i, Box::new(c));
+            }
+            "CREATEVOLUMETABLE" if args.len() >= 2 => {
+                let r = match ponto2(args[1]) {
+                    Some(p) => self.civil_tabela_volumes(i, args[0], p),
+                    None => Err("Usage: CREATEVOLUMETABLE alignment x,y".into()),
+                };
+                self.civil_al_resultado(r);
+            }
+            "CREATEVOLUMETABLE" => {
+                let mut c = crate::modules::civil::perguntas::PerguntasCommand::com(
+                    "CREATEVOLUMETABLE",
+                    "CREATEVOLUMETABLE",
+                    vec![self.civil_pergunta_eixo(i)],
+                );
+                if let Some(e) = args.first() {
+                    c = crate::modules::civil::perguntas::PerguntasCommand::com("CREATEVOLUMETABLE", &format!("CREATEVOLUMETABLE {e}"), Vec::new());
+                }
+                self.civil_instalar(i, Box::new(c.e_ponto("Specify the upper left corner of the volume table:")));
+            }
+            "EXPORTMATERIALS" => match self.civil_al_escolher(i, args.first().copied()) {
+                Ok(n) => {
+                    if let Some(caminho) = args.get(1) {
+                        let r = self.civil_exportar_materiais(i, &n, std::path::Path::new(caminho));
+                        self.civil_al_resultado(r);
+                    } else {
+                        let sugestao = format!("Volumes_{n}.csv");
+                        return Some(iced::Task::perform(
+                            async move {
+                                let h = crate::sys::file_dialog()
+                                    .set_title("Export Materials")
+                                    .add_filter("CSV (*.csv)", &["csv"])
+                                    .set_file_name(&sugestao)
+                                    .save_file()
+                                    .await?;
+                                Some(crate::sys::handle_path(&h))
+                            },
+                            move |p| match p {
+                                Some(p) => Message::Command(format!("EXPORTMATERIALS {n} \"{}\"", p.display())),
+                                None => Message::Noop,
+                            },
+                        ));
+                    }
+                }
+                Err(e) => self.command_line.push_error(&e),
+            },
             // Traçado por PIs (Civil 3D: Alignment Creation Tools).
             "CREATEALIGNMENTLAYOUT" => {
                 let nome = args.first().map(|s| s.to_string()).unwrap_or_else(|| self.civil_proximo_eixo(i));

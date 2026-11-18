@@ -111,6 +111,7 @@ mod recent;
 mod record_api;
 pub(crate) mod civil;
 pub(crate) mod civil_alinhamento;
+pub(crate) mod civil_materiais;
 pub(crate) mod civil_viewer;
 mod rename_dialog;
 mod saved_filters;

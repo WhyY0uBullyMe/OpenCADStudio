@@ -554,3 +554,71 @@ fn alinhamento_do_objeto_e_pelo_tracado() {
     digitar(&mut app, "L");
     assert_eq!(app.tabs[i].active_cmd.as_ref().map(|c| c.name()), Some("CREATEALIGNMENTLAYOUT"));
 }
+
+/// Spec 004 (Compute Materials): terreno plano a 100 e a barragem do teste do corredor (seção de 322 m², 160 m).
+#[test]
+fn compute_materials_tabela_e_excel() {
+    let dir = std::env::temp_dir().join(format!("agral_mat_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let arq = dir.join("plano100.txt");
+    let mut t = String::new();
+    let mut n = 1;
+    for x in (0..=200).step_by(50) {
+        for y in (0..=200).step_by(50) {
+            t.push_str(&format!("{n},{y},{x},100.000,TN\n"));
+            n += 1;
+        }
+    }
+    std::fs::write(&arq, t).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    command(&mut app, "CREATESURFACE TN");
+    command(&mut app, &format!("ADDSURFACEPOINTFILE TN \"{}\" PNEZD", arq.display()));
+    app.tabs[i].scene.ensure_layer("EIXO");
+    let mut p = LwPolyline::new();
+    p.vertices = vec![LwVertex::new(Vector2::new(20.0, 100.0)), LwVertex::new(Vector2::new(180.0, 100.0))];
+    p.common.layer = "EIXO".into();
+    app.tabs[i].scene.add_entities(vec![EntityType::LwPolyline(p)]);
+    command(&mut app, "CREATEALIGNMENT EIXO1 EIXO");
+    command(&mut app, "CREATEPROFILEVIEW EIXO1 TN 10 0,-300");
+    command(&mut app, "CREATEPROFILE EIXO1 0,110 160,110");
+    command(&mut app, "CREATEASSEMBLY EIXO1 6 0 L 3 2 8 3 1");
+    command(&mut app, "CREATECORRIDOR EIXO1 20");
+    // Sem linhas de seção ainda: avisa.
+    command(&mut app, "COMPUTEMATERIALS EIXO1 TN EIXO1-CORR");
+    assert!(app.civil_al_ler(i, "EIXO1").unwrap().materiais.is_none());
+    command(&mut app, "CREATESECTIONS EIXO1 20 50 50 3 400,0");
+
+    // Pela linha de comando, com os padrões: eixo, TN, superfície do corredor; aterro com fator 1,25.
+    for t in ["COMPUTEMATERIALS", "", "", "", "", "1.25"] {
+        digitar(&mut app, t);
+    }
+    let a = app.civil_al_ler(i, "EIXO1").unwrap();
+    let m = a.materiais.clone().expect("critério gravado");
+    assert_eq!((m.base.as_str(), m.comparar.as_str(), m.fator_corte, m.fator_aterro), ("TN", "EIXO1-CORR", 1.0, 1.25));
+    let linhas = app.civil_materiais_linhas(i, &a).unwrap();
+    assert_eq!(linhas.len(), 9, "estacas 0 a 160 a cada 20 m");
+    let u = *linhas.last().unwrap();
+    let esperado = 322.0 * 160.0 * 1.25;
+    assert!((u.acum_aterro - esperado).abs() / esperado < 0.01, "aterro {} x {esperado}", u.acum_aterro);
+    assert!(u.acum_corte < 1.0, "corte {}", u.acum_corte);
+    assert_eq!(m.totais.map(|t| t.1.round()), Some(u.acum_aterro.round()), "totais para o Toolspace");
+
+    // Tabela no desenho e CSV para o Excel.
+    command(&mut app, "CREATEVOLUMETABLE EIXO1 500,0");
+    let textos = textos_do_bloco(&app, "AGRAL_VOLUMES_EIXO1");
+    assert!(textos.iter().any(|t| t == "TOTAL") && textos.iter().any(|t| t == "0+160.00"), "{textos:?}");
+    assert!(textos.iter().any(|t| t == &crate::app::civil_materiais::br(u.acum_aterro, 2)));
+    let csv = dir.join("vol.csv");
+    command(&mut app, &format!("EXPORTMATERIALS EIXO1 \"{}\"", csv.display()));
+    let conteudo = std::fs::read_to_string(&csv).unwrap();
+    assert_eq!(conteudo.lines().count(), 2 + 9);
+    assert!(conteudo.contains("Estaca;Área corte (m²)") && conteudo.contains("0+160.00;"));
+
+    // Mudou o fator: a tabela acompanha.
+    command(&mut app, "COMPUTEMATERIALS EIXO1 TN EIXO1-CORR 1 1");
+    let textos = textos_do_bloco(&app, "AGRAL_VOLUMES_EIXO1");
+    let sem_fator = crate::app::civil_materiais::br(u.acum_aterro / 1.25, 2);
+    assert!(textos.iter().any(|t| *t == sem_fator), "{sem_fator} em {textos:?}");
+}

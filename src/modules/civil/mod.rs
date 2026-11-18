@@ -116,6 +116,26 @@ impl CadModule for CivilModule {
                     ],
                 },
                 RibbonGroup {
+                    title: "Volumes and Materials",
+                    tools: vec![
+                        RibbonItem::LargeTool(ferramenta(
+                            "COMPUTEMATERIALS",
+                            "Compute\nMaterials",
+                            include_bytes!("../../../assets/icons/civil_materials.svg"),
+                        )),
+                        RibbonItem::Tool(ferramenta(
+                            "CREATEVOLUMETABLE",
+                            "Volume Table",
+                            include_bytes!("../../../assets/icons/civil_volumetable.svg"),
+                        )),
+                        RibbonItem::Tool(ferramenta(
+                            "EXPORTMATERIALS",
+                            "Export to Excel",
+                            include_bytes!("../../../assets/icons/civil_exportmaterials.svg"),
+                        )),
+                    ],
+                },
+                RibbonGroup {
                     title: "Palettes",
                     tools: vec![RibbonItem::LargeTool(ferramenta(
                         "TOOLSPACE",

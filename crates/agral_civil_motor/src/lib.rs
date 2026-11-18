@@ -9,6 +9,7 @@ pub mod corredor;
 pub mod diagnostico;
 pub mod emenda;
 pub mod landxml;
+pub mod materiais;
 pub mod pontos;
 pub mod superficie;
 pub mod tin;

@@ -35,6 +35,18 @@ pub struct Secoes {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct CriterioMateriais {
+    pub base: String,
+    pub comparar: String,
+    pub fator_corte: f64,
+    pub fator_aterro: f64,
+    /// Canto de cima à esquerda da tabela de volumes desenhada, se houver.
+    pub tabela: Option<[f64; 2]>,
+    /// Totais do último cálculo (corte, aterro), m³, já com os fatores.
+    pub totais: Option<(f64, f64)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct AlinhamentoDwg {
     pub nome: String,
     pub descricao: String,
@@ -53,6 +65,10 @@ pub struct AlinhamentoDwg {
     pub corredor: Option<f64>,
     /// Volumes do último corredor montado (aterro, corte), m³.
     pub volumes: Option<(f64, f64)>,
+    /// Critério do Compute Materials (spec 004): superfície base, de comparação e fatores de corte e aterro.
+    pub materiais: Option<CriterioMateriais>,
+    /// Tabela de volumes desenhada (bloco e referência).
+    pub desenho_volumes: Vec<Handle>,
     /// Desenho da planta (eixo, estacas), da vista de perfil e das seções.
     pub desenho: Vec<Handle>,
     pub desenho_perfil: Vec<Handle>,
@@ -77,6 +93,8 @@ impl AlinhamentoDwg {
             assembly: None,
             corredor: None,
             volumes: None,
+            materiais: None,
+            desenho_volumes: Vec::new(),
             desenho: Vec::new(),
             desenho_perfil: Vec::new(),
             desenho_secoes: Vec::new(),
@@ -143,7 +161,22 @@ impl AlinhamentoDwg {
             e.push(XRecordEntry::double(41, va));
             e.push(XRecordEntry::double(42, vc));
         }
+        if let Some(m) = &self.materiais {
+            chave(&mut e, "materials");
+            e.push(XRecordEntry::string(300, m.base.clone()));
+            e.push(XRecordEntry::string(300, m.comparar.clone()));
+            e.push(XRecordEntry::double(40, m.fator_corte));
+            e.push(XRecordEntry::double(41, m.fator_aterro));
+            if let Some((c, a)) = m.totais {
+                e.push(XRecordEntry::double(42, c));
+                e.push(XRecordEntry::double(43, a));
+            }
+            if let Some(t) = m.tabela {
+                e.push(XRecordEntry::new(15, XRecordValue::Point3D(t[0], t[1], 0.0)));
+            }
+        }
         for (k, hs) in [
+            ("drawing_volumes", &self.desenho_volumes),
             ("drawing", &self.desenho),
             ("drawing_profile", &self.desenho_perfil),
             ("drawing_sections", &self.desenho_secoes),
@@ -260,7 +293,32 @@ impl AlinhamentoDwg {
                     a.volumes = (va.is_finite() && vc.is_finite()).then_some((va, vc));
                     k += 3;
                 }
-                "drawing" | "drawing_profile" | "drawing_sections" | "drawing_corridor" => {
+                "materials" => {
+                    a.materiais = Some(CriterioMateriais {
+                        base: txt(val(k)?),
+                        comparar: txt(val(k + 1)?),
+                        fator_corte: num(val(k + 2)?),
+                        fator_aterro: num(val(k + 3)?),
+                        tabela: None,
+                        totais: None,
+                    });
+                    k += 4;
+                    if e.get(k).is_some_and(|x| x.code == 42) {
+                        let t = (num(val(k)?), num(val(k + 1)?));
+                        if let Some(m) = a.materiais.as_mut() {
+                            m.totais = Some(t);
+                        }
+                        k += 2;
+                    }
+                    if e.get(k).is_some_and(|x| x.code == 15) {
+                        let t = pt(val(k)?);
+                        if let Some(m) = a.materiais.as_mut() {
+                            m.tabela = Some([t[0], t[1]]);
+                        }
+                        k += 1;
+                    }
+                }
+                "drawing" | "drawing_profile" | "drawing_sections" | "drawing_corridor" | "drawing_volumes" => {
                     let n = cont(val(k)?);
                     k += 1;
                     let mut hs = Vec::new();
@@ -274,6 +332,7 @@ impl AlinhamentoDwg {
                         "drawing" => a.desenho = hs,
                         "drawing_profile" => a.desenho_perfil = hs,
                         "drawing_sections" => a.desenho_secoes = hs,
+                        "drawing_volumes" => a.desenho_volumes = hs,
                         _ => a.desenho_corredor = hs,
                     }
                 }
@@ -303,6 +362,8 @@ mod testes {
         a.corredor = Some(5.0);
         a.volumes = Some((12345.6, 7.8));
         a.desenho_corredor = vec![Handle::new(0x40)];
+        a.materiais = Some(CriterioMateriais { base: "TN".into(), comparar: "EIXO1-CORR".into(), fator_corte: 1.0, fator_aterro: 1.25, tabela: Some([10.0, -20.0]), totais: Some((5.5, 1234.0)) });
+        a.desenho_volumes = vec![Handle::new(0x41)];
         let b = AlinhamentoDwg::de_xrecord("EIXO1", &a.para_xrecord()).unwrap();
         assert_eq!(a, b);
         assert!(b.geometria().unwrap().comprimento() > 150.0);

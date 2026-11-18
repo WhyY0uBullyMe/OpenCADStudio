@@ -140,7 +140,7 @@ impl OpenCADStudio {
         }
     }
 
-    fn civil_al_gravar(&mut self, i: usize, a: &AlinhamentoDwg, novo: bool) -> Result<(), String> {
+    pub(crate) fn civil_al_gravar(&mut self, i: usize, a: &AlinhamentoDwg, novo: bool) -> Result<(), String> {
         let mut host = crate::app::plugin_host::HostSession::new(self, i);
         let e = a.para_xrecord();
         if novo {
@@ -414,7 +414,7 @@ impl OpenCADStudio {
         self.push_undo_snapshot(i, "DELETEALIGNMENT");
         let scene = &mut self.tabs[i].scene;
         scene.erase_entities(&a.desenho_corredor);
-        for (tipo, hs) in [("ALINHAMENTO", &a.desenho), ("PERFIL", &a.desenho_perfil), ("SECOES", &a.desenho_secoes)] {
+        for (tipo, hs) in [("ALINHAMENTO", &a.desenho), ("PERFIL", &a.desenho_perfil), ("SECOES", &a.desenho_secoes), ("VOLUMES", &a.desenho_volumes)] {
             scene.erase_entities(hs);
             let b = bloco(tipo, &a.nome);
             if scene.document.block_records.get(&b).is_some() {
@@ -428,7 +428,7 @@ impl OpenCADStudio {
     }
 
     /// Troca um dos três desenhos do alinhamento pelo novo conteúdo; devolve os handles da inserção.
-    fn civil_al_trocar_desenho(&mut self, i: usize, tipo: &str, marca: &str, nome: &str, antigo: &[document::Handle], conteudo: Vec<EntityType>) -> Vec<document::Handle> {
+    pub(crate) fn civil_al_trocar_desenho(&mut self, i: usize, tipo: &str, marca: &str, nome: &str, antigo: &[document::Handle], conteudo: Vec<EntityType>) -> Vec<document::Handle> {
         let scene = &mut self.tabs[i].scene;
         scene.erase_entities(antigo);
         let b = bloco(tipo, nome);
@@ -446,11 +446,13 @@ impl OpenCADStudio {
                 }
             }
         }
+        let primeira = conteudo[0].common().layer.clone();
         scene.define_block_raw(&b, Vector3::new(0.0, 0.0, 0.0), conteudo);
         let camada = match tipo {
             "ALINHAMENTO" => CAMADA_EIXO.0,
             "PERFIL" => CAMADA_GRADE.0,
-            _ => CAMADA_SECAO.0,
+            "SECOES" => CAMADA_SECAO.0,
+            _ => primeira.as_str(),
         };
         scene.ensure_layer(camada);
         let mut ins = document::entities::Insert::new(b, Vector3::new(0.0, 0.0, 0.0));
@@ -498,7 +500,8 @@ impl OpenCADStudio {
             match &tin {
                 Some(Ok(t)) => {
                     let gabarito = corredor_ok.then_some(&asm);
-                    let (ents, n) = desenho_das_secoes(t, &al, greide.as_ref(), &s, gabarito);
+                    let (mut ents, n) = desenho_das_secoes(t, &al, greide.as_ref(), &s, gabarito);
+                    camadas_do_template(&self.tabs[i].scene.document, &mut ents);
                     a.desenho_secoes = self.civil_al_trocar_desenho(i, "SECOES", "SECTIONS", &a.nome.clone(), &a.desenho_secoes.clone(), ents);
                     msgs.push(format!("{n} cross sections."));
                 }
@@ -507,6 +510,12 @@ impl OpenCADStudio {
             }
         }
         self.civil_al_gravar(i, &a, false)?;
+        if a.materiais.as_ref().is_some_and(|m| m.tabela.is_some()) {
+            match self.civil_desenhar_tabela_volumes(i, &a.nome) {
+                Ok(m) => msgs.push(m),
+                Err(e) => msgs.push(format!("Volume table not drawn: {e}")),
+            }
+        }
         Ok(msgs.join(" "))
     }
 
@@ -519,6 +528,28 @@ impl OpenCADStudio {
             .map(|a| a.nome)
             .collect();
         nomes.into_iter().filter_map(|n| self.civil_redesenhar_alinhamento(i, &n).ok().map(|m| format!("Alignment '{n}' updated: {m}"))).collect()
+    }
+}
+
+/// Camadas das seções no padrão do template do JP (TEMPLATE_JP.dwt), quando o desenho tem elas: grade, terreno,
+/// gabarito e textos; texto em SIMPLEX-AS. Desenho sem o template fica nas camadas C-* do Agral CAD.
+fn camadas_do_template(doc: &document::Document, ents: &mut [EntityType]) {
+    let troca = [
+        (CAMADA_GRADE.0, "GRID MENOR-SEC-AS"),
+        (CAMADA_TN.0, "TERRENO NATURAL-AS"),
+        (CAMADA_CORREDOR.0, "ATERRO-AS"),
+        (CAMADA_TEXTO.0, "PERFIL GRID-TXT-AS"),
+        (CAMADA_EIXO.0, "ALINHAMENTO-AS"),
+    ];
+    let estilo = doc.text_styles.get("SIMPLEX-AS").is_some();
+    for e in ents.iter_mut() {
+        let atual = e.common().layer.clone();
+        if let Some((_, nova)) = troca.iter().find(|(de, para)| atual == *de && doc.layers.contains(para)) {
+            e.common_mut().layer = nova.to_string();
+        }
+        if let (EntityType::Text(t), true) = (&mut *e, estilo) {
+            t.style = "SIMPLEX-AS".into();
+        }
     }
 }
 

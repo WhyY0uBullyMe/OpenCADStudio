@@ -285,6 +285,21 @@ fn linhas_dos_alinhamentos<'a>(alinhamentos: Vec<crate::civil::alinhamentos::Ali
             kit::tree_row(corr).depth(3).caret_room().icon(icone(ic!("corredor"), a.corredor.is_none())).muted(a.corredor.is_none()).view(),
             vec![("Create / Rebuild...".into(), format!("CREATECORRIDOR {n}")), ("Rebuild".into(), format!("REBUILDCORRIDOR {n}"))],
         ));
+        let mat = match &a.materiais {
+            Some(m) => match m.totais {
+                Some((c, f)) => format!("Materials ({} x {}): cut {c:.0} m3, fill {f:.0} m3, net {:.0} m3", m.base, m.comparar, c - f),
+                None => format!("Materials ({} x {})", m.base, m.comparar),
+            },
+            None => "Materials (none)".to_string(),
+        };
+        col = col.push(com_menu(
+            kit::tree_row(mat).depth(3).caret_room().icon(icone(ic!("materials"), a.materiais.is_none())).muted(a.materiais.is_none()).view(),
+            vec![
+                ("Compute Materials...".into(), format!("COMPUTEMATERIALS {n}")),
+                ("Volume Table...".into(), format!("CREATEVOLUMETABLE {n}")),
+                ("Export to Excel...".into(), format!("EXPORTMATERIALS {n}")),
+            ],
+        ));
         let sec = match &a.secoes {
             Some(s) => format!("Sections (every {} m, {} + {} m)", s.intervalo, s.esquerda, s.direita),
             None => "Sections (none)".to_string(),
