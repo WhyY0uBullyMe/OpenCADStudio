@@ -696,6 +696,10 @@ impl OpenCADStudio {
         self.dock_keep_view();
         // Thumbnails the block palette asked for are read in the background.
         task = Task::batch([task, self.palette_thumbnail_task()]);
+        // Agral Civil: cota no mouse (o ponteiro chega por várias mensagens: ViewportMove, PaneMove, CursorMoved).
+        if pointer_motion {
+            task = Task::batch([task, self.civil_preparar_cota(), self.civil_cota_mouse_andou()]);
+        }
         // Agral Civil: montagens de superfície que um comando pediu em segundo plano.
         if !self.civil_tarefas.is_empty() {
             task = Task::batch([task, Task::batch(std::mem::take(&mut self.civil_tarefas))]);
@@ -6225,8 +6229,7 @@ impl OpenCADStudio {
 
             // ── Cursor / viewport messages ─────────────────────────────────
             Message::CursorMoved(p, viewport) => {
-                let t = self.on_cursor_moved(p, viewport);
-                Task::batch([t, self.civil_preparar_cota(), self.civil_cota_mouse_andou()])
+                self.on_cursor_moved(p, viewport)
             }
 
             // A multi-finger gesture owns the pointer while it runs.

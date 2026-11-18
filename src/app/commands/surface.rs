@@ -85,16 +85,16 @@ impl OpenCADStudio {
     }
 
     pub(crate) fn civil_abrir_toolspace(&mut self) {
-        if !self.show_toolspace {
+        if !self.show_toolspace || !self.dock.agral_toolspace_ajustado {
             self.show_toolspace = true;
-            self.civil_encaixar_toolspace();
+            self.civil_encaixar_toolspace(false);
         }
     }
 
     /// Primeira vez: o Toolspace vai para a borda oposta à do Properties e essa borda passa a se esconder
     /// sozinha (pedido do JP, 18/11: Properties sempre fixo, Toolspace só ao passar o mouse). No Open CAD Studio o
     /// fixar vale por borda; depois disso o JP muda à vontade pelo alfinete.
-    fn civil_encaixar_toolspace(&mut self) {
+    fn civil_encaixar_toolspace(&mut self, mostrar: bool) {
         use crate::app::config::DockSide;
         use crate::ui::dock::PanelId;
         if !self.dock.agral_toolspace_ajustado || !self.dock.is_placed(PanelId::Toolspace) {
@@ -110,7 +110,10 @@ impl OpenCADStudio {
             }
             self.save_config();
         }
-        self.dock_reveal(PanelId::Toolspace);
+        // Aberto sozinho (ao criar ou montar superfície) fica escondido na borda; pelo comando TOOLSPACE, aparece.
+        if mostrar || !self.dock.auto_hides(PanelId::Toolspace) {
+            self.dock_reveal(PanelId::Toolspace);
+        }
     }
 
     pub(super) fn dispatch_surface(&mut self, cmd: &str, i: usize) -> Option<Task<Message>> {
@@ -122,7 +125,7 @@ impl OpenCADStudio {
             "TOOLSPACE" => {
                 self.show_toolspace ^= true;
                 if self.show_toolspace {
-                    self.civil_encaixar_toolspace();
+                    self.civil_encaixar_toolspace(true);
                 }
             }
             // Versões de linha de comando (como o hífen do AutoCAD): perguntam cada valor, sem janela.
