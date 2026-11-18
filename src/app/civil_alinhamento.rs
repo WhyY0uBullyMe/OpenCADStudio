@@ -91,6 +91,19 @@ pub(crate) fn vertices_com_bulge(e: &EntityType) -> Option<(Vec<([f64; 2], f64)>
     }
 }
 
+/// Dica do mouse: o eixo mais perto (até `alcance` m) com a estaca e o afastamento (direita positiva).
+pub(crate) fn dica_do_eixo(doc: &document::Document, p: [f64; 2], alcance: f64) -> Option<String> {
+    crate::civil::alinhamentos(doc)
+        .into_iter()
+        .filter_map(|a| {
+            let g = a.geometria()?;
+            let (e, o) = g.estaca_e_offset(p);
+            (o.abs() <= alcance && e > g.estaca_inicial - 1e-6 && e < g.estaca_final() + 1e-6).then(|| (o.abs(), a.nome, e, o))
+        })
+        .min_by(|x, y| x.0.total_cmp(&y.0))
+        .map(|(_, n, e, o)| format!("{n}\nStation: {}\nOffset: {:.3} {}", texto_da_estaca(e), o.abs(), if o >= 0.0 { "R" } else { "L" }))
+}
+
 impl OpenCADStudio {
     pub(crate) fn civil_alinhamentos(&self, i: usize) -> Vec<AlinhamentoDwg> {
         crate::civil::alinhamentos(&self.tabs[i].scene.document)
@@ -386,12 +399,13 @@ fn desenho_do_perfil(
     let px = |e: f64| x0 + (e - al.estaca_inicial);
     let py = |z: f64| y0 + (z - base) * ex;
     let largura = al.comprimento();
-    let alt = (intervalo / 8.0).clamp(0.5, 5.0);
+    // Texto proporcional ao espaço entre estacas, para os rótulos verticais da faixa caberem lado a lado.
+    let alt = (intervalo * 0.15).clamp(0.5, 8.0);
     // Grade.
     let mut z = base;
     while z <= topo + 1e-9 {
         out.push(linha([x0, py(z)], [x0 + largura, py(z)], CAMADA_GRADE));
-        out.push(texto(format!("{z:.2}"), [x0 - alt * 0.5, py(z)], alt * 0.7, 0.0, false, CAMADA_TEXTO));
+        out.push(texto(format!("{z:.2}"), [x0 - alt * 0.5, py(z)], alt, 0.0, false, CAMADA_TEXTO));
         if let EntityType::Text(t) = out.last_mut().unwrap() {
             t.horizontal_alignment = TextHorizontalAlignment::Right;
             t.vertical_alignment = TextVerticalAlignment::Middle;
@@ -418,16 +432,17 @@ fn desenho_do_perfil(
                 let c = [px(p.estaca), py(p.cota)];
                 out.push(linha([c[0] - alt * 0.4, c[1] - alt * 0.4], [c[0] + alt * 0.4, c[1] + alt * 0.4], CAMADA_GREIDE));
                 out.push(linha([c[0] - alt * 0.4, c[1] + alt * 0.4], [c[0] + alt * 0.4, c[1] - alt * 0.4], CAMADA_GREIDE));
-                out.push(texto(format!("PIV {} / {:.3}", texto_da_estaca(p.estaca), p.cota), [c[0], c[1] + alt * 1.2], alt * 0.6, 0.0, true, CAMADA_GREIDE));
+                out.push(texto(format!("PIV {} / {:.3}", texto_da_estaca(p.estaca), p.cota), [c[0], c[1] + alt * 1.5], alt * 0.8, 0.0, true, CAMADA_GREIDE));
             }
         }
     }
     // Faixa de cotas embaixo: quatro linhas de texto por estaca.
     let linhas_faixa = ["Station", "Terrain", "Design", "Fill(+)/Cut(-)"];
-    let h = alt * 1.6;
+    // Linha da faixa: o rótulo vertical mais comprido ("1+234.50", "-12.345") cabe com folga.
+    let h = alt * 7.0;
     for (k, r) in linhas_faixa.iter().enumerate() {
         let y = y0 - h * (k as f64 + 0.5);
-        out.push(texto(r.to_string(), [x0 - alt * 0.5, y], alt * 0.6, 0.0, false, CAMADA_TEXTO));
+        out.push(texto(r.to_string(), [x0 - alt * 0.5, y], alt, 0.0, false, CAMADA_TEXTO));
         if let EntityType::Text(t) = out.last_mut().unwrap() {
             t.horizontal_alignment = TextHorizontalAlignment::Right;
             t.vertical_alignment = TextVerticalAlignment::Middle;
@@ -435,6 +450,10 @@ fn desenho_do_perfil(
         }
         out.push(linha([x0, y0 - h * (k as f64 + 1.0)], [x0 + largura, y0 - h * (k as f64 + 1.0)], CAMADA_GRADE));
     }
+    for e in &estacas {
+        out.push(linha([px(*e), y0], [px(*e), y0 - h * linhas_faixa.len() as f64], CAMADA_GRADE));
+    }
+    out.push(linha([x0, y0], [x0, y0 - h * linhas_faixa.len() as f64], CAMADA_GRADE));
     for e in &estacas {
         let x = px(*e);
         let zt = tin.cota_em(al.ponto_na_estaca(*e).0[0], al.ponto_na_estaca(*e).0[1]);
@@ -448,13 +467,13 @@ fn desenho_do_perfil(
             },
         ];
         for (k, c) in col.into_iter().enumerate() {
-            out.push(texto(c, [x, y0 - h * (k as f64 + 0.5)], alt * 0.5, std::f64::consts::FRAC_PI_2, true, CAMADA_TEXTO));
+            out.push(texto(c, [x, y0 - h * (k as f64 + 0.5)], alt * 0.8, std::f64::consts::FRAC_PI_2, true, CAMADA_TEXTO));
         }
     }
     out.push(texto(
         format!("Profile {nome}  (surface {superficie}, V {ex}x)"),
-        [x0 + largura / 2.0, py(topo) + alt * 1.5],
-        alt,
+        [x0 + largura / 2.0, py(topo) + alt * 2.5],
+        alt * 1.6,
         0.0,
         true,
         CAMADA_TEXTO,

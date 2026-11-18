@@ -301,6 +301,10 @@ fn alinhamento_perfil_greide_e_secoes() {
     for e in ["0+000.00", "0+020.00", "0+160.00"] {
         assert!(rot.iter().any(|t| t == e), "rótulo {e} em {rot:?}");
     }
+    // Dica do mouse perto do eixo: estaca 80 (x = 100), 5 m à direita (sul, andando para leste).
+    let dica = crate::app::civil_alinhamento::dica_do_eixo(&app.tabs[i].scene.document, [100.0, 95.0], 50.0).unwrap();
+    assert!(dica.contains("Station: 0+080.00") && dica.contains("Offset: 5.000 R"), "{dica}");
+    assert!(crate::app::civil_alinhamento::dica_do_eixo(&app.tabs[i].scene.document, [100.0, 300.0], 50.0).is_none());
     // Vista de perfil: faixa com a cota do terreno 101 + 0,05·estaca.
     command(&mut app, "CREATEPROFILEVIEW EIXO1 TN 10 0,-200");
     let faixa = textos_do_bloco(&app, "AGRAL_PERFIL_EIXO1");

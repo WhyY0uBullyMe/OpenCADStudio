@@ -2681,11 +2681,19 @@ bg={bg_ms:.1}ms n={view_count}"
             }
 
             // Agral Civil: cota da superfície sob o mouse, como a dica do Civil 3D (pedido do JP, 18/11).
-            if self.civil_cota_visivel && !tab.is_start && tab.editing_model_space() && !tab.civil_tins.is_empty() {
+            if self.civil_cota_visivel && !tab.is_start && tab.editing_model_space() {
                 let w = tab.last_cursor_world;
+                let mut linhas: Vec<String> = Vec::new();
                 if let Some((nome, z)) = crate::app::civil::cota_no_ponto(&tab.civil_tins, &tab.scene.document, w.x, w.y) {
+                    linhas.push(format!("{nome}\nElevation: {z:.3}"));
+                }
+                // Perto de um eixo (até 50 m): estaca e afastamento, como a dica do alinhamento no Civil 3D.
+                if let Some(t) = crate::app::civil_alinhamento::dica_do_eixo(&tab.scene.document, [w.x, w.y], 50.0) {
+                    linhas.push(t);
+                }
+                if !linhas.is_empty() {
                     let dica = container(
-                        text(format!("{nome}\nElevation: {z:.3}")).size(12).color(Color::from_rgb8(0x10, 0x18, 0x24)),
+                        text(linhas.join("\n")).size(12).color(Color::from_rgb8(0x10, 0x18, 0x24)),
                     )
                     .padding([3, 6])
                     .style(|_: &Theme| container::Style {

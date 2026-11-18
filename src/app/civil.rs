@@ -153,7 +153,10 @@ impl OpenCADStudio {
     pub(crate) fn civil_cota_mouse_andou(&mut self) -> iced::Task<super::Message> {
         self.civil_cota_mov = Instant::now();
         self.civil_cota_visivel = false;
-        if self.civil_cota_relogio || self.tabs.get(self.active_tab).is_none_or(|t| t.civil_tins.is_empty()) {
+        let nada = self.tabs.get(self.active_tab).is_none_or(|t| {
+            t.civil_tins.is_empty() && crate::civil::alinhamentos(&t.scene.document).is_empty()
+        });
+        if self.civil_cota_relogio || nada {
             return iced::Task::none();
         }
         self.civil_cota_relogio = true;
