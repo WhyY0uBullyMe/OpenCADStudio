@@ -31,6 +31,7 @@ pub(crate) use purge::purge_pass;
 mod block_editor_vars;
 mod bvisibility;
 mod count;
+mod surface;
 mod dash;
 mod dgn_import;
 mod dim;
@@ -765,6 +766,9 @@ impl OpenCADStudio {
     /// `finish_dispatch`), or `None` to defer to the next — equivalent to one
     /// sequential `match` over all arms.
     fn dispatch_families(&mut self, cmd: &str, i: usize) -> Option<Task<Message>> {
+        if let Some(t) = self.dispatch_surface(cmd, i) {
+            return Some(t);
+        }
         if let Some(t) = self.dispatch_text_layer(cmd, i) {
             return Some(t);
         }
@@ -1028,6 +1032,15 @@ inventory::submit!(crate::command::CommandRegistration {
         // Drafting-aid / display toggles + customization entry points wired in the
         // dispatch families (no interactive command module of their own).
         "ALIASEDIT",
+        // Agral Civil (src/app/commands/surface.rs).
+        "CREATESURFACE",
+        "ADDSURFACECONTOURS",
+        "REBUILDSURFACE",
+        "SURFACEPROPERTIES",
+        "DELETESURFACE",
+        "ZOOMSURFACE",
+        "TOOLSPACE",
+        "SURFACEDEFINITION",
         // Dispatched commands that the alias file names (#2452).
         "CTABLESTYLE",
         "HPNAME",

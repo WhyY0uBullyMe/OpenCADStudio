@@ -127,6 +127,8 @@ pub enum PanelId {
     ExternalReferences,
     /// Outline of the drawing's origin planes, open sketch and solid bodies.
     Browser,
+    /// Agral Civil: Toolspace (Prospector) com a árvore das superfícies.
+    Toolspace,
     /// Node library of the node graph overlay.
     NodeGraph,
     /// Regions and scans of the drawing's point clouds.
@@ -151,7 +153,7 @@ pub enum PanelId {
 
 impl PanelId {
     /// Every panel, in the order the pallet menu lists them.
-    pub const ALL: [PanelId; 17] = [
+    pub const ALL: [PanelId; 18] = [
         PanelId::Properties,
         PanelId::GraphicAttributes,
         PanelId::BlockPalette,
@@ -160,6 +162,7 @@ impl PanelId {
         PanelId::ParametersManager,
         PanelId::ExternalReferences,
         PanelId::Browser,
+        PanelId::Toolspace,
         PanelId::NodeGraph,
         PanelId::PointCloudManager,
         PanelId::Count,
@@ -182,6 +185,7 @@ impl PanelId {
             PanelId::ParametersManager => "Parameters Manager",
             PanelId::ExternalReferences => "External References",
             PanelId::Browser => "Browser",
+            PanelId::Toolspace => "Toolspace",
             PanelId::NodeGraph => "Node Graph",
             PanelId::PointCloudManager => "Point Cloud Manager",
             PanelId::Count => "Count",
@@ -208,6 +212,7 @@ impl PanelId {
             PanelId::ParametersManager => include_bytes!("../../assets/icons/table.svg"),
             PanelId::ExternalReferences => crate::ui::icons::FOLDER_OPEN,
             PanelId::Browser => include_bytes!("../../assets/icons/content_browser.svg"),
+            PanelId::Toolspace => include_bytes!("../../assets/icons/content_browser.svg"),
             PanelId::NodeGraph => crate::ui::icons::NODE_GRAPH,
             PanelId::PointCloudManager => include_bytes!("../../assets/icons/pc_attach.svg"),
             PanelId::Count => include_bytes!("../../assets/icons/data_extract.svg"),
@@ -232,6 +237,7 @@ impl PanelId {
             PanelId::ParametersManager => 420.0,
             PanelId::ExternalReferences => 460.0,
             PanelId::Browser => 230.0,
+            PanelId::Toolspace => 300.0,
             PanelId::NodeGraph => 220.0,
             PanelId::PointCloudManager => 280.0,
             PanelId::Count => 280.0,

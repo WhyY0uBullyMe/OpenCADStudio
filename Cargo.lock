@@ -7,6 +7,7 @@ name = "OpenCADStudio"
 version = "2026.46.0"
 dependencies = [
  "aes",
+ "agral_civil_motor",
  "allsorts",
  "ashpd",
  "base64",
@@ -156,14 +157,6 @@ dependencies = [
  "acadrust",
  "roxmltree",
  "spade",
-]
-
-[[package]]
-name = "agral_civil_pacote"
-version = "0.1.0"
-dependencies = [
- "agral_civil_motor",
- "ocs_plugin_api",
 ]
 
 [[package]]

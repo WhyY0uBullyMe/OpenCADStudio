@@ -1187,6 +1187,15 @@ fn face_triangle_indices(vertices: &[[f64; 3]], faces: &[Vec<usize>]) -> (Vec<u3
         if polygon.len() < 3 {
             continue;
         }
+        // Agral CAD: um triângulo já é um triângulo; triangular o polígono custava 1,5 s por malha de superfície
+        // de 100 mil vértices (medido no CURVAS_V1, 18/11).
+        if face.len() == 3 && polygon.len() == 3 {
+            if face[0] != face[1] && face[1] != face[2] && face[2] != face[0] {
+                indices.extend([face[0] as u32, face[1] as u32, face[2] as u32]);
+                triangle_faces.push(face_index);
+            }
+            continue;
+        }
         for triangle in triangulate_planar(&polygon).chunks_exact(3) {
             let mut mapped = [0u32; 3];
             let mut valid = true;

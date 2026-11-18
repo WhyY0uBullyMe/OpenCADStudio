@@ -16,6 +16,7 @@ use std::sync::OnceLock;
 pub fn all_modules() -> Vec<Box<dyn CadModule>> {
     vec![
         Box::new(super::draw::DrawModule),
+        Box::new(super::civil::CivilModule),
         Box::new(super::parametric::ParametricModule),
         Box::new(super::model::ModelModule),
         Box::new(super::insert::InsertModule),

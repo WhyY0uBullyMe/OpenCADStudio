@@ -1,4 +1,4 @@
-# Agral CAD: programa para Windows com o pacote Agral Civil embutido (pasta plugins/agral.civil ao lado do .exe).
+# Agral CAD: programa para Windows, com o Agral Civil dentro do núcleo (decisão do JP em 18/11: sem plugin).
 # Gera um ZIP portátil para o JP testar. Roda à mão (Actions > Agral CAD Windows > Run workflow) ou a cada push na
 # branch agral-cad.
 name: Agral CAD Windows
@@ -38,24 +38,20 @@ jobs:
 
       - name: Test Agral Civil
         shell: bash
-        run: cargo test --locked --release -p agral_civil_motor -p agral_civil_pacote
+        run: cargo test --locked --release -p agral_civil_motor
 
       - name: Build
         shell: bash
-        run: |
-          cargo build --locked --release
-          cargo build --locked --release -p agral_civil_pacote
+        run: cargo build --locked --release
 
       - name: Package
         shell: bash
         run: |
           d=AgralCAD
-          mkdir -p "$d/plugins/agral.civil"
-          cp target/release/OpenCADStudio.exe "$d/"
-          cp crates/agral_civil_pacote/plugin.toml "$d/plugins/agral.civil/"
-          cp target/release/agral_civil_pacote.dll "$d/plugins/agral.civil/"
+          mkdir -p "$d"
+          cp target/release/OpenCADStudio.exe "$d/AgralCAD.exe"
           cp LICENSE "$d/"
-          printf 'Agral CAD (teste) - Open CAD Studio com o pacote Agral Civil embutido.\nAbra OpenCADStudio.exe. Comandos: CREATESURFACE, ADDSURFACECONTOURS, REBUILDSURFACE.\nCodigo: https://github.com/WhyY0uBullyMe/OpenCADStudio/tree/agral-cad (GPL 3).\n' > "$d/LEIA-ME.txt"
+          printf 'Agral CAD (teste)\nAbra AgralCAD.exe. Aba Civil: Create Surface, Add Contours, Rebuild, Toolspace.\nComandos: CREATESURFACE, ADDSURFACECONTOURS, REBUILDSURFACE, SURFACEPROPERTIES, DELETESURFACE, ZOOMSURFACE, TOOLSPACE.\nBaseado no Open CAD Studio (GPL 3). Codigo: https://github.com/WhyY0uBullyMe/OpenCADStudio/tree/agral-cad\n' > "$d/LEIA-ME.txt"
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

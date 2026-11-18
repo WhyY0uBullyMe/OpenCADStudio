@@ -234,3 +234,42 @@ pub fn contar_cruzamentos(tin: &Tin, linhas: &[Vec<P3>]) -> usize {
     }
     total
 }
+
+impl Tin {
+    /// Borda da superfície: arestas usadas por um triângulo só, encadeadas em anéis fechados (contorno e furos).
+    pub fn borda(&self) -> Vec<Vec<P3>> {
+        let mut uso: HashMap<(u32, u32), u32> = HashMap::new();
+        for t in &self.triangulos {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *uso.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        // Arestas de borda com a orientação do triângulo dono: o anel anda sempre no mesmo sentido.
+        let mut proximo: HashMap<u32, Vec<u32>> = HashMap::new();
+        for t in &self.triangulos {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                if uso[&(a.min(b), a.max(b))] == 1 {
+                    proximo.entry(a).or_default().push(b);
+                }
+            }
+        }
+        let mut aneis = Vec::new();
+        let mut inicios: Vec<u32> = proximo.keys().copied().collect();
+        inicios.sort_unstable();
+        for inicio in inicios {
+            while let Some(b) = proximo.get_mut(&inicio).and_then(|v| v.pop()) {
+                let mut anel = vec![self.vertices[inicio as usize], self.vertices[b as usize]];
+                let mut atual = b;
+                while atual != inicio {
+                    let Some(c) = proximo.get_mut(&atual).and_then(|v| v.pop()) else { break };
+                    anel.push(self.vertices[c as usize]);
+                    atual = c;
+                }
+                aneis.push(anel);
+            }
+        }
+        aneis
+    }
+}

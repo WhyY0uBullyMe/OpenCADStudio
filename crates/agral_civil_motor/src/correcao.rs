@@ -47,7 +47,69 @@ pub struct Correcao {
     pub restantes: usize,
 }
 
+/// Corrige só as curvas envolvidas em cruzamentos (e as que a correção vier a tocar), conferindo o desenho todo
+/// a cada passada. Mesmo resultado que corrigir tudo de uma vez, bem mais rápido em arquivo grande (no CURVAS_V1
+/// só cerca de 400 das 4.500 curvas se cruzam).
 pub fn corrigir_cruzamentos(entrada: &[Vec<P3>], op: &OpcoesCorrecao) -> Correcao {
+    let mut curvas: Vec<Vec<P3>> = entrada.to_vec();
+    let mut origem: Vec<usize> = (0..entrada.len()).collect();
+    let mut total = Correcao::default();
+    let mut mudou = vec![false; entrada.len()];
+    for _ in 0..10 {
+        let diag = diagnosticar_curvas(&curvas);
+        if diag.cruzamentos.is_empty() {
+            break;
+        }
+        let mut envolvidas: Vec<usize> = diag.cruzamentos.iter().flat_map(|c| [c.curva_a, c.curva_b]).collect();
+        envolvidas.sort_unstable();
+        envolvidas.dedup();
+        let sub: Vec<Vec<P3>> = envolvidas.iter().map(|&k| curvas[k].clone()).collect();
+        let r = corrigir_conjunto(&sub, op);
+        total.barrigas_cortadas += r.barrigas_cortadas;
+        total.lentes_separadas += r.lentes_separadas;
+        total.trechos_cortados += r.trechos_cortados;
+        total.rodadas += r.rodadas;
+        for &k in &envolvidas {
+            mudou[origem[k]] = true;
+        }
+        // Troca as envolvidas pelo resultado (que pode ter mais pedaços, se houve corte).
+        let fora: std::collections::HashSet<usize> = envolvidas.iter().copied().collect();
+        let mut novas = Vec::with_capacity(curvas.len());
+        let mut nova_origem = Vec::with_capacity(curvas.len());
+        for (k, c) in curvas.into_iter().enumerate() {
+            if !fora.contains(&k) {
+                novas.push(c);
+                nova_origem.push(origem[k]);
+            }
+        }
+        for (c, o) in r.curvas.into_iter().zip(r.origem) {
+            novas.push(c);
+            nova_origem.push(origem[envolvidas[o]]);
+        }
+        curvas = novas;
+        origem = nova_origem;
+    }
+    if !diagnosticar_curvas(&curvas).cruzamentos.is_empty() {
+        // Não convergiu por partes: corrige o desenho todo de uma vez (sempre termina sem cruzamento).
+        let r = corrigir_conjunto(&curvas, op);
+        total.barrigas_cortadas += r.barrigas_cortadas;
+        total.lentes_separadas += r.lentes_separadas;
+        total.trechos_cortados += r.trechos_cortados;
+        total.rodadas += r.rodadas;
+        for o in &r.origem {
+            mudou[origem[*o]] = true;
+        }
+        origem = r.origem.iter().map(|&o| origem[o]).collect();
+        curvas = r.curvas;
+    }
+    total.restantes = diagnosticar_curvas(&curvas).cruzamentos.len();
+    total.alteradas = (0..curvas.len()).filter(|&k| mudou[origem[k]]).collect();
+    total.curvas = curvas;
+    total.origem = origem;
+    total
+}
+
+fn corrigir_conjunto(entrada: &[Vec<P3>], op: &OpcoesCorrecao) -> Correcao {
     let mut r = Correcao {
         curvas: entrada.to_vec(),
         origem: (0..entrada.len()).collect(),

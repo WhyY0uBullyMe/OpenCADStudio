@@ -15,6 +15,7 @@ fn dois_pedacos_da_mesma_cota_com_buraco_de_2_m_viram_um() {
     let r = emendar_pedacos(&[reta(0.0, 10.0, 0.0, 10.0), reta(12.0, 20.0, 0.0, 10.0)], &op());
     assert_eq!(r.emendas, 1);
     assert_eq!(r.curvas.len(), 1);
+    assert_eq!(r.ligacoes, vec![[[10.0, 0.0, 10.0], [12.0, 0.0, 10.0]]]);
     let c = &r.curvas[0];
     assert_eq!((c[0][0], c[c.len() - 1][0]), (0.0, 20.0));
 }

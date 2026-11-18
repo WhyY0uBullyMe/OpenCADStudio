@@ -4776,7 +4776,7 @@ fn start_page_content<'a>(
     active: super::StartSection,
     templates: Option<&'a [std::path::PathBuf]>,
 ) -> Element<'a, Message> {
-    let headline = text("Open CAD Studio")
+    let headline = text("Agral CAD")
         .size(crate::ui::style::start_metrics::HEADLINE)
         .style(start_primary_style);
 
@@ -4810,6 +4810,8 @@ fn start_page_content<'a>(
     };
 
     // Donate — the prominent call-to-action, using the theme's danger role.
+    // Agral CAD: fora da tela inicial (programa próprio da Agral, 18/11).
+    #[allow(unused_variables)]
     let donate_btn = {
         button(
             row![
@@ -4883,29 +4885,21 @@ fn start_page_content<'a>(
             }
         },
         outline_btn(crate::tr!("start", "open-file"), Message::OpenFile).into(),
-        donate_btn.into(),
     ])
     .spacing_x(crate::ui::style::start_metrics::ACTION_GAP)
     .row_h(48.0)
     .report_natural_width(action_width_out.clone());
 
     #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
+    // Agral CAD: sem "Send Feedback" e "OCS Web", que levam ao projeto original.
     let mut secondary_items: Vec<Element<'a, Message>> = vec![
-        outline_btn(
-            crate::tr!("start", "send-feedback"),
-            Message::RibbonToolClick {
-                tool_id: "REPORT".to_string(),
-                event: crate::modules::ModuleEvent::Command("REPORT".to_string()),
-            },
-        )
-        .into(),
         outline_btn(crate::tr!("action", "options"), Message::OptionsOpen).into(),
     ];
     secondary_items
         .push(outline_btn(crate::tr!("action", "plugins"), Message::PluginManagerOpen).into());
     // The web build is already in the browser, so only the desktop offers a
     // link to the web version.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any())]
     {
         // Filled with the active theme's primary colour.
         secondary_items.push(

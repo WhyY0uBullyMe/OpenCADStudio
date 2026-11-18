@@ -156,6 +156,7 @@ impl OpenCADStudio {
             Some(K::BlockEditChanges) => crate::t!("Block - Save Parameter Changes?").into_owned(),
             Some(K::BlockEditPicker) => crate::t!("Edit Block Definition").into_owned(),
             Some(K::Rename) => crate::tr!("rename-dialog", "title"),
+            Some(K::Civil) => self.civil_dialog.as_ref().map(|d| d.titulo()).unwrap_or_default(),
             Some(K::Purge) => crate::tr!("purge-dialog", "title"),
             Some(K::DrawingProperties) => crate::tr!("dwgprops-dialog", "title"),
             Some(K::GeographicLocation) => {
@@ -527,6 +528,10 @@ impl OpenCADStudio {
                 sized_flow(ex, 460, 520, |flow| {
                     crate::ui::window::purge::view(state, flow)
                 })
+            }
+            super::super::ModalKind::Civil => {
+                let state = self.civil_dialog.as_ref()?;
+                sized_flow(ex, 560, 380, |flow| crate::ui::window::civil_dialog::view(state, flow))
             }
             super::super::ModalKind::Rename => {
                 let state = self.rename_dialog.as_ref()?;
@@ -2657,10 +2662,10 @@ fn donation_dialog_window(sizing: crate::ui::modal::ModalSizing) -> Element<'sta
 fn default_assoc_dialog_window(sizing: crate::ui::modal::ModalSizing) -> Element<'static, Message> {
     container(
         column![
-            text(t!("Make Open CAD Studio your default CAD app?"))
+            text("Make Agral CAD your default CAD app?")
                 .size(15),
             iced::widget::Space::new().height(10),
-            text(t!("Open .dwg and .dxf drawings in Open CAD Studio by default. You can change this later in your system settings."))
+            text("Open .dwg and .dxf drawings in Agral CAD by default. You can change this later in your system settings.")
                 .size(12)
                 .style(dialog_muted_text_style),
             iced::widget::Space::new().height(22),

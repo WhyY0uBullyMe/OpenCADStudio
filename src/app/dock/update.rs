@@ -620,6 +620,7 @@ impl OpenCADStudio {
                         self.refresh_xref_manager();
                     }
                     PanelId::Browser => self.show_browser = true,
+                    PanelId::Toolspace => self.show_toolspace = true,
                     PanelId::NodeGraph => {
                         task = self.on_graph(crate::ui::node_graph::GraphMsg::Toggle);
                     }
@@ -716,6 +717,7 @@ impl OpenCADStudio {
             }
             PanelId::ExternalReferences => self.show_external_references = false,
             PanelId::Browser => self.show_browser = false,
+            PanelId::Toolspace => self.show_toolspace = false,
             PanelId::NodeGraph => self.show_node_graph = false,
             PanelId::PointCloudManager => self.pc_manager.show = false,
             PanelId::Count => {
@@ -870,6 +872,7 @@ impl OpenCADStudio {
             }
             PanelId::ExternalReferences => self.show_external_references,
             PanelId::Browser => self.show_browser,
+            PanelId::Toolspace => self.show_toolspace,
             PanelId::NodeGraph => self.show_node_graph,
             PanelId::PointCloudManager => self.pc_manager.show,
             PanelId::Count => self.count_palette.show,

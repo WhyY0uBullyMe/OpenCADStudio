@@ -364,6 +364,7 @@ impl OpenCADStudio {
             Some(AttMan) => self.attman = None,
             Some(BlockEditPicker) => self.block_edit_picker = None,
             Some(Rename) => self.rename_dialog = None,
+            Some(Civil) => self.civil_dialog = None,
             Some(Purge) => self.purge_dialog = None,
             Some(DrawingProperties) => self.drawing_properties = None,
             Some(GeographicLocation) => self.geographic_location = None,
@@ -14476,6 +14477,13 @@ impl OpenCADStudio {
             }
             Message::BlockEditPickerApply => self.apply_bedit_dialog(),
             Message::Rename(msg) => self.on_rename_dialog(msg),
+            Message::Civil(msg) => self.on_civil_dialog(msg),
+            Message::ToolspaceFold(chave) => {
+                if !self.toolspace_fechados.remove(&chave) {
+                    self.toolspace_fechados.insert(chave);
+                }
+                Task::none()
+            }
             Message::Purge(msg) => self.on_purge_dialog(msg),
             Message::DwgProps(msg) => self.on_drawing_properties(msg),
             Message::GeographicLocation(msg) => self.on_geographic_location(msg),

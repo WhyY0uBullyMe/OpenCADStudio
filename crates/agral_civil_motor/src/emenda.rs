@@ -35,6 +35,8 @@ pub struct Emenda {
     pub fechadas: usize,
     /// Índices (em `curvas`) das curvas que receberam emenda.
     pub alteradas: Vec<usize>,
+    /// Cada emenda feita: as duas pontas ligadas (para marcar no desenho e o engenheiro conferir).
+    pub ligacoes: Vec<[P3; 2]>,
 }
 
 const ANGULO_MAXIMO_GRAUS: f64 = 75.0;
@@ -70,6 +72,7 @@ pub fn emendar_pedacos(entrada: &[Vec<P3>], op: &OpcoesEmenda) -> Emenda {
     let mut mudou = vec![false; curvas.len()];
     let mut emendas = 0;
     let mut fechadas = 0;
+    let mut ligacoes: Vec<[P3; 2]> = Vec::new();
     let cos_max = ANGULO_MAXIMO_GRAUS.to_radians().cos();
     loop {
         // Candidatas: (folga, curva i, ponta de i é o fim?, curva j, ponta de j é o fim?)
@@ -131,6 +134,7 @@ pub fn emendar_pedacos(entrada: &[Vec<P3>], op: &OpcoesEmenda) -> Emenda {
             }
             usada[i] = true;
             usada[j] = true;
+            ligacoes.push([p, q]);
             feitas.push((i, fi, j, fj));
         }
         if feitas.is_empty() {
@@ -167,7 +171,7 @@ pub fn emendar_pedacos(entrada: &[Vec<P3>], op: &OpcoesEmenda) -> Emenda {
         }
     }
     let alteradas = (0..curvas.len()).filter(|&k| mudou[k]).collect();
-    Emenda { curvas, emendas, fechadas, alteradas }
+    Emenda { curvas, emendas, fechadas, alteradas, ligacoes }
 }
 
 fn comprimento(c: &[P3]) -> f64 {

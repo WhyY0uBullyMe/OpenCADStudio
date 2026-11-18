@@ -3,7 +3,7 @@
 //! `CURVAS_V1` da Fazenda Cedro, 17/11).
 
 use agral_civil_motor::P3;
-use ocs_plugin_api::host::EntityType;
+use document::EntityType;
 
 /// Bit 16 do vértice de polilinha 2D: ponto de controle de spline (não é ponto da curva).
 const VERTICE_DE_CONTROLE: u8 = 16;

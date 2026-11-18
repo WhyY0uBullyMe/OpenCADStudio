@@ -107,6 +107,7 @@ mod qselect_tests;
 mod quick_calc;
 mod recent;
 mod record_api;
+mod civil;
 mod rename_dialog;
 mod saved_filters;
 pub(crate) mod settings;
@@ -980,6 +981,8 @@ pub(super) struct OpenCADStudio {
     block_definition_open_editor: Option<String>,
     block_edit_picker: Option<crate::ui::window::block_edit_picker::State>,
     rename_dialog: Option<crate::ui::window::rename::State>,
+    /// Janelas do Agral Civil (Create Surface, Add Contour Data, Surface Properties, Delete).
+    pub(crate) civil_dialog: Option<crate::ui::window::civil_dialog::State>,
     drawing_properties: Option<crate::ui::window::drawing_properties::State>,
     geographic_location: Option<crate::ui::window::geographic_location::State>,
     purge_dialog: Option<crate::ui::window::purge::State>,
@@ -1657,6 +1660,9 @@ pub(super) struct OpenCADStudio {
     /// Whether the Browser panel is shown. Off until BROWSER opens it, so
     /// the default layout is unchanged for existing users.
     pub(crate) show_browser: bool,
+    /// Painel Toolspace (Prospector) do Agral Civil e os ramos fechados da árvore.
+    pub(crate) show_toolspace: bool,
+    pub(crate) toolspace_fechados: std::collections::HashSet<String>,
     /// Point Cloud Manager palette (POINTCLOUDMANAGER).
     pub(crate) pc_manager: crate::ui::window::pc_manager::PcManager,
     pub(crate) count_palette: crate::ui::window::count_palette::CountPalette,
@@ -3438,6 +3444,7 @@ pub enum ModalKind {
     BlockEditChanges,
     BlockEditPicker,
     Rename,
+    Civil,
     Purge,
     DrawingProperties,
     GeographicLocation,
@@ -4173,6 +4180,8 @@ pub enum Message {
     BlockEditPickerSelect(String),
     BlockEditPickerApply,
     Rename(crate::ui::window::rename::RenameMsg),
+    Civil(crate::ui::window::civil_dialog::CivilMsg),
+    ToolspaceFold(String),
     Purge(crate::ui::window::purge::PurgeMsg),
     DwgProps(crate::ui::window::drawing_properties::DwgPropsMsg),
     GeographicLocation(crate::ui::window::geographic_location::GeographicLocationMsg),
@@ -6382,6 +6391,7 @@ impl OpenCADStudio {
             block_definition_open_editor: None,
             block_edit_picker: None,
             rename_dialog: None,
+            civil_dialog: None,
             drawing_properties: None,
             geographic_location: None,
             purge_dialog: None,
@@ -6669,6 +6679,8 @@ impl OpenCADStudio {
             graph_undo_open: false,
             show_external_references: false,
             show_browser: false,
+            show_toolspace: false,
+            toolspace_fechados: Default::default(),
             pc_manager: Default::default(),
             count_palette: Default::default(),
             quick_calc: Default::default(),
@@ -7749,13 +7761,13 @@ pub fn run() -> iced::Result {
             let dot = if tab.dirty { "● " } else { "" };
             let name = tab.tab_display_name();
             format!(
-                "{}Open CAD Studio {} - {}",
+                "{}Agral CAD {} - {}",
                 dot,
                 env!("OCS_APP_VERSION"),
                 name
             )
         } else {
-            concat!("Open CAD Studio ", env!("OCS_APP_VERSION")).to_string()
+            concat!("Agral CAD ", env!("OCS_APP_VERSION")).to_string()
         }
     })
     .theme(|state: &OpenCADStudio, _| state.active_theme.clone())

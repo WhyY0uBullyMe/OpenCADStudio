@@ -230,3 +230,35 @@ fn trecho_de_curva_que_volta_por_cima_dela_mesma_nao_trava() {
     let r = s.montar();
     assert!(r.tin.triangulos.len() > 0);
 }
+
+#[test]
+fn borda_da_superficie_e_um_anel_fechado_pelo_contorno() {
+    let mut pts = vec![];
+    for i in 0..=4 {
+        for j in 0..=4 {
+            pts.push([i as f64 * 10.0, j as f64 * 10.0, 1.0]);
+        }
+    }
+    let mut s = Superficie::nova("TN", "");
+    s.acrescentar(ItemDefinicao::pontos("grade", pts));
+    let b = s.montar().tin.borda();
+    assert_eq!(b.len(), 1, "um anel só");
+    let anel = &b[0];
+    assert_eq!(anel.first(), anel.last(), "fechado");
+    let perimetro: f64 = anel.windows(2).map(|w| ((w[0][0] - w[1][0]).powi(2) + (w[0][1] - w[1][1]).powi(2)).sqrt()).sum();
+    assert!((perimetro - 160.0).abs() < 1e-9, "perímetro {perimetro}");
+}
+
+#[test]
+fn furo_da_superficie_vira_um_segundo_anel() {
+    let mut pts = vec![];
+    for i in 0..=20 {
+        for j in 0..=20 {
+            pts.push([i as f64, j as f64, 1.0]);
+        }
+    }
+    let mut s = Superficie::nova("TN", "");
+    s.acrescentar(ItemDefinicao::pontos("grade", pts));
+    s.acrescentar(ItemDefinicao::furo("lagoa", vec![[8.0, 8.0, 0.0], [12.0, 8.0, 0.0], [12.0, 12.0, 0.0], [8.0, 12.0, 0.0], [8.0, 8.0, 0.0]]));
+    assert_eq!(s.montar().tin.borda().len(), 2);
+}

@@ -20,6 +20,7 @@ pub(crate) fn headless_ui_lock() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 #[cfg(not(target_arch = "wasm32"))]
+pub mod civil;
 pub mod cli;
 pub mod command;
 pub mod config;

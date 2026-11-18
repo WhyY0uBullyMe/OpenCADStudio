@@ -719,6 +719,13 @@ impl OpenCADStudio {
                 width,
                 chrome,
             ),
+            crate::ui::dock::PanelId::Toolspace => crate::ui::window::toolspace::view(
+                &tab.tab_display_name(),
+                crate::civil::superficies(&tab.scene.document),
+                &self.toolspace_fechados,
+                width,
+                chrome,
+            ),
             crate::ui::dock::PanelId::NodeGraph => tab.graph.panel(width, chrome),
             crate::ui::dock::PanelId::Count => crate::ui::window::count_palette::view(
                 &self.count_palette,
