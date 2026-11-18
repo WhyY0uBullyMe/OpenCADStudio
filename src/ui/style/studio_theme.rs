@@ -43,10 +43,31 @@ pub fn studio_dark() -> Theme {
     )
 }
 
+/// Agral: a paleta do Hydrus (azul-noite, painel, rio e âmbar), tema padrão do Agral CAD (pedido do JP, 18/11).
+pub const AGRAL: &str = "Agral";
+
+/// Área do desenho no tema Agral: o fundo azul-noite do Hydrus.
+pub const AGRAL_CANVAS: [u8; 3] = [0x0A, 0x0F, 0x17];
+
+#[must_use]
+pub fn agral() -> Theme {
+    Theme::custom(
+        AGRAL,
+        Seed {
+            background: rgb(0x12_1A26),
+            text: rgb(0xE6_EDF5),
+            primary: rgb(0x5A_A9E6),
+            success: rgb(0x4C_C3_8A),
+            warning: rgb(0xF0_B44C),
+            danger: rgb(0xE5_636B),
+        },
+    )
+}
+
 /// The Studio themes, in the order the theme picker should show them.
 #[must_use]
 pub fn studio_themes() -> Vec<Theme> {
-    vec![studio_dark()]
+    vec![agral(), studio_dark()]
 }
 
 /// The canvas colour a Studio theme asks for, or `None` for any other theme.
@@ -55,6 +76,7 @@ pub fn studio_themes() -> Vec<Theme> {
 pub fn studio_canvas(theme: &Theme) -> Option<[u8; 3]> {
     match theme.to_string().as_str() {
         STUDIO_DARK => Some(STUDIO_DARK_CANVAS),
+        AGRAL => Some(AGRAL_CANVAS),
         _ => None,
     }
 }

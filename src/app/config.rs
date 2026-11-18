@@ -123,14 +123,32 @@ pub enum DockSide {
 pub struct UiThemeConfig {
     pub name: String,
     pub palette: UiThemePalette,
+    /// (`serde(default)` no campo: arquivo antigo sem o campo lê `false`, não o `true` do padrão da estrutura.)
+    /// Agral CAD: o tema Agral já foi aplicado uma vez. Quem tinha o padrão antigo (Oxocarbon) salvo passa para o
+    /// Agral ao abrir esta versão; quem escolher outro tema depois fica com o escolhido.
+    #[serde(default)]
+    pub agral_aplicado: bool,
 }
 
 impl Default for UiThemeConfig {
     fn default() -> Self {
-        let theme = iced::Theme::Oxocarbon;
+        let theme = crate::ui::style::studio_theme::agral();
         Self {
             name: theme.to_string(),
             palette: UiThemePalette::from_iced(theme.seed()),
+            agral_aplicado: true,
+        }
+    }
+}
+
+impl UiThemeConfig {
+    /// Leva o padrão antigo salvo (Oxocarbon) para o tema Agral, uma vez só.
+    pub fn migrar_para_agral(&mut self) {
+        if !self.agral_aplicado {
+            if self.name == iced::Theme::Oxocarbon.to_string() {
+                *self = Self::default();
+            }
+            self.agral_aplicado = true;
         }
     }
 }
@@ -585,6 +603,7 @@ pub fn parse_theme_name(s: &str) -> Option<iced::Theme> {
         "FUSIONBLACK" => Some(crate::ui::style::fusion_theme::fusion_black()),
         "FUSIONWHITE" => Some(crate::ui::style::fusion_theme::fusion_white()),
         "STUDIODARK" => Some(crate::ui::style::studio_theme::studio_dark()),
+        "AGRAL" => Some(crate::ui::style::studio_theme::agral()),
         _ => None,
     }
 }
@@ -638,8 +657,9 @@ impl AppConfig {
             .and_then(|window| window.local_storage().ok().flatten())
             .and_then(|storage| storage.get_item(WEB_CONFIG_KEY).ok().flatten());
 
-        body.and_then(|body| serde_json::from_str(&body).ok())
-            .unwrap_or_default()
+        let mut c: Self = body.and_then(|body| serde_json::from_str(&body).ok()).unwrap_or_default();
+        c.theme.migrar_para_agral();
+        c
     }
 
     /// Persist the config as JSON. Best-effort; silent on unavailable or
@@ -962,6 +982,22 @@ mod tests {
         assert_eq!(value["ribbon"]["floating"][0]["extras_right"], true);
         let restored: AppConfig = serde_json::from_str(&serialized).expect("deserialize config");
         assert!(restored.ribbon == original.ribbon);
+    }
+
+    #[test]
+    fn tema_agral_e_padrao_e_substitui_o_oxocarbon_salvo_uma_vez() {
+        assert_eq!(AppConfig::default().theme.name, "Agral");
+        let mut antigo: UiThemeConfig = serde_json::from_str(r#"{"name":"Oxocarbon"}"#).unwrap();
+        assert!(!antigo.agral_aplicado);
+        antigo.migrar_para_agral();
+        assert_eq!(antigo.name, "Agral");
+        let mut escolhido: UiThemeConfig = serde_json::from_str(r#"{"name":"Oxocarbon","agral_aplicado":true}"#).unwrap();
+        escolhido.migrar_para_agral();
+        assert_eq!(escolhido.name, "Oxocarbon", "tema escolhido depois fica");
+        let mut outro: UiThemeConfig = serde_json::from_str(r#"{"name":"Dark"}"#).unwrap();
+        outro.migrar_para_agral();
+        assert_eq!(outro.name, "Dark");
+        assert_eq!(parse_theme_name("agral"), Some(crate::ui::style::studio_theme::agral()));
     }
 
     #[test]
