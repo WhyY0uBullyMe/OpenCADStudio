@@ -6,8 +6,10 @@ impl OpenCADStudio {
         if crate::config::managed() {
             return;
         }
+        // Agral CAD: não pergunta se quer ser o CAD padrão ao abrir (o JP usa junto com o AutoCAD; 18/11). Quem
+        // quiser associa pelo comando FILEASSOC.
         #[cfg(not(target_arch = "wasm32"))]
-        if !self.default_assoc_prompted {
+        if false && !self.default_assoc_prompted {
             self.pending_startup_modals
                 .push_back(ModalKind::AssocPrompt);
         }

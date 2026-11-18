@@ -97,7 +97,8 @@ impl OpenCADStudio {
     fn civil_encaixar_toolspace(&mut self) {
         use crate::app::config::DockSide;
         use crate::ui::dock::PanelId;
-        if !self.dock.is_placed(PanelId::Toolspace) {
+        if !self.dock.agral_toolspace_ajustado || !self.dock.is_placed(PanelId::Toolspace) {
+            self.dock.agral_toolspace_ajustado = true;
             let lado = match self.dock.location(PanelId::Properties) {
                 Some((DockSide::Right, _)) => DockSide::Left,
                 _ => DockSide::Right,
@@ -116,13 +117,47 @@ impl OpenCADStudio {
         let cmd = cmd.trim();
         let (verbo, resto) = cmd.split_once(char::is_whitespace).unwrap_or((cmd, ""));
         let verbo = verbo.to_ascii_uppercase();
-        let args: Vec<&str> = resto.split_whitespace().collect();
+        let args: Vec<&str> = argumentos(resto);
         match verbo.as_str() {
             "TOOLSPACE" => {
                 self.show_toolspace ^= true;
                 if self.show_toolspace {
                     self.civil_encaixar_toolspace();
                 }
+            }
+            // Versões de linha de comando (como o hífen do AutoCAD): perguntam cada valor, sem janela.
+            "-CREATESURFACE" | "-ADDSURFACECONTOURS" | "-ADDSURFACEBOUNDARIES" | "-SURFACEPROPERTIES" => {
+                use crate::modules::civil::perguntas::PerguntasCommand;
+                let c = match verbo.as_str() {
+                    "-CREATESURFACE" => PerguntasCommand::new("-CREATESURFACE", "CREATESURFACE", &["Surface name:"]),
+                    "-ADDSURFACECONTOURS" => PerguntasCommand::new(
+                        "-ADDSURFACECONTOURS",
+                        "ADDSURFACECONTOURS",
+                        &["Surface name:", "Layer of the contours:", "Fix crossings [FIX=1/FIX=0] <FIX=1>:", "Join gaps up to (m) [JOIN=<m>] <JOIN=0>:"],
+                    ),
+                    "-ADDSURFACEBOUNDARIES" => PerguntasCommand::new(
+                        "-ADDSURFACEBOUNDARIES",
+                        "ADDSURFACEBOUNDARIES",
+                        &["Surface name:", "Boundary type [OUTER/HIDE] <OUTER>:", "Layer of the closed polylines:"],
+                    ),
+                    _ => PerguntasCommand::new("-SURFACEPROPERTIES", "_SURFACESTYLE", &["Surface name:", "Style name:"]),
+                };
+                use crate::command::CadCommand;
+                self.command_line.push_info(&c.prompt());
+                self.tabs[i].active_cmd = Some(Box::new(c));
+            }
+            "_SURFACESTYLE" => {
+                let r = match (args.first(), args.get(1)) {
+                    (Some(n), Some(e)) => self.civil_ler(i, n).and_then(|s| {
+                        let estilo = crate::civil::estilos::nomes()
+                            .into_iter()
+                            .find(|x| x.eq_ignore_ascii_case(e))
+                            .ok_or_else(|| format!("Style '{e}' not found."))?;
+                        self.civil_propriedades(i, n, &s.nome, &s.descricao, &estilo, s.comprimento_maximo)
+                    }),
+                    _ => Err("Usage: -SURFACEPROPERTIES surface style".into()),
+                };
+                self.civil_resultado(r);
             }
             // Lisps do JP refeitos no programa (18/11): DIVGRIPS (vértice a cada X m) e SPL2PL (N vértices).
             "DIVGRIPS" | "SPL2PL" => {
@@ -447,5 +482,33 @@ impl OpenCADStudio {
             }
         }
         Task::none()
+    }
+}
+
+/// Argumentos separados por espaço, com aspas para nomes que têm espaço ("CURVA MESTRA-AS").
+fn argumentos(resto: &str) -> Vec<&str> {
+    let mut v = Vec::new();
+    let mut r = resto.trim_start();
+    while !r.is_empty() {
+        if let Some(t) = r.strip_prefix('"') {
+            let fim = t.find('"').unwrap_or(t.len());
+            v.push(&t[..fim]);
+            r = t.get(fim + 1..).unwrap_or("").trim_start();
+        } else {
+            let fim = r.find(char::is_whitespace).unwrap_or(r.len());
+            v.push(&r[..fim]);
+            r = r[fim..].trim_start();
+        }
+    }
+    v
+}
+
+#[cfg(test)]
+mod testes_argumentos {
+    #[test]
+    fn aspas_juntam_nome_com_espaco() {
+        assert_eq!(super::argumentos(r#"TN "CURVA MESTRA-AS" FIX=0"#), vec!["TN", "CURVA MESTRA-AS", "FIX=0"]);
+        assert_eq!(super::argumentos("  a  b "), vec!["a", "b"]);
+        assert!(super::argumentos("").is_empty());
     }
 }

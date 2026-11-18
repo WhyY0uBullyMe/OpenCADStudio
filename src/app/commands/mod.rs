@@ -1034,6 +1034,10 @@ inventory::submit!(crate::command::CommandRegistration {
         "ALIASEDIT",
         // Agral Civil (src/app/commands/surface.rs).
         "CREATESURFACE",
+        "-CREATESURFACE",
+        "-ADDSURFACECONTOURS",
+        "-ADDSURFACEBOUNDARIES",
+        "-SURFACEPROPERTIES",
         "ADDSURFACECONTOURS",
         "REBUILDSURFACE",
         "SURFACEPROPERTIES",

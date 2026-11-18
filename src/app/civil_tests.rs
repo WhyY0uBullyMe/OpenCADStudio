@@ -19,6 +19,13 @@ fn command(app: &mut OpenCADStudio, cmd: &str) {
     app.drive_headless_task(task).expect("the command runs headless");
 }
 
+/// Como quem digita na linha de comando: o texto e o Enter.
+fn digitar(app: &mut OpenCADStudio, t: &str) {
+    let _ = app.update(Message::CommandInput(t.to_string()));
+    let task = app.update(Message::CommandSubmit);
+    app.drive_headless_task(task).expect("roda");
+}
+
 fn cota(app: &OpenCADStudio, x: f64, y: f64) -> Option<(String, f64)> {
     let tab = &app.tabs[app.active_tab];
     crate::app::civil::cota_no_ponto(&tab.civil_tins, &tab.scene.document, x, y)
@@ -124,4 +131,32 @@ fn montagem_em_segundo_plano_desenha_ao_terminar() {
     let s = crate::civil::superficies(&app.tabs[i].scene.document).remove(0);
     assert!(!s.desatualizada && !s.desenho.is_empty(), "desenhada depois da montagem");
     assert!(cota(&app, 45.0, 15.0).is_some());
+}
+
+#[test]
+fn versoes_de_linha_de_comando_perguntam_cada_valor() {
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    app.tabs[i].scene.ensure_layer("CURVA MESTRA-AS");
+    let mut c = vec![curva(100.0, 0.0), curva(101.0, 10.0), curva(102.0, 20.0)];
+    c.iter_mut().for_each(|e| e.common_mut().layer = "CURVA MESTRA-AS".into());
+    app.tabs[i].scene.add_entities(c);
+    // Como o MCP e a linha de comando mandam: o comando e depois cada resposta.
+    for t in ["-CREATESURFACE", "TN"] {
+        digitar(&mut app, t);
+    }
+    assert!(app.active_modal.is_none(), "não abre janela");
+    for t in ["-ADDSURFACECONTOURS", "TN", "CURVA MESTRA-AS", "FIX=0", ""] {
+        digitar(&mut app, t);
+    }
+    let s = crate::civil::superficies(&app.tabs[i].scene.document).remove(0);
+    assert_eq!(s.nome, "TN");
+    assert_eq!(s.itens.len(), 1);
+    assert!(!s.itens[0].corrigir);
+    assert_eq!(s.itens[0].fontes.len(), 3);
+    for t in ["-SURFACEPROPERTIES", "TN", "Curvas 0.5m"] {
+        digitar(&mut app, t);
+    }
+    assert_eq!(crate::civil::superficies(&app.tabs[i].scene.document)[0].estilo, "Curvas 0.5m");
 }

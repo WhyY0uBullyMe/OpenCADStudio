@@ -546,6 +546,10 @@ pub struct DockState {
     /// Auto-hide per edge (left, right): the edge shows only its icon strip
     /// until an icon is hovered.
     pub auto_hide: (bool, bool),
+    /// Agral CAD: o Toolspace já foi posto uma vez na borda oposta ao Properties, escondendo sozinho. Arquivo
+    /// antigo sem o campo lê `false` e recebe o ajuste uma vez; depois vale o que o JP fixar.
+    #[serde(default)]
+    pub agral_toolspace_ajustado: bool,
     /// Floating panels, back → front.
     pub floating: Vec<FloatPanel>,
     /// Per-panel settings, keyed by `PanelId`: the width a pallet floats at
@@ -614,6 +618,7 @@ impl Default for DockState {
             right: vec![DockGroup::single(PanelId::BlockPalette)],
             shown: (0, 0),
             auto_hide: (false, false),
+            agral_toolspace_ajustado: false,
             floating: Vec::new(),
             panels: BTreeMap::new(),
             detached: BTreeMap::new(),
