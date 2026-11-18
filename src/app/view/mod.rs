@@ -2680,6 +2680,24 @@ bg={bg_ms:.1}ms n={view_count}"
                 }
             }
 
+            // Agral Civil: cota da superfície sob o mouse, como a dica do Civil 3D (pedido do JP, 18/11).
+            if !tab.is_start && tab.editing_model_space() && !tab.civil_tins.is_empty() {
+                let w = tab.last_cursor_world;
+                if let Some((nome, z)) = crate::app::civil::cota_no_ponto(&tab.civil_tins, &tab.scene.document, w.x, w.y) {
+                    let dica = container(
+                        text(format!("{nome}\nElevation: {z:.3}")).size(12).color(Color::from_rgb8(0xF0, 0xF4, 0xF8)),
+                    )
+                    .padding([3, 6])
+                    .style(|_: &Theme| container::Style {
+                        background: Some(Background::Color(Color::from_rgba8(0x12, 0x1A, 0x26, 0.92))),
+                        border: iced::Border { color: Color::from_rgb8(0x5A, 0xA9, 0xE6), width: 1.0, radius: 3.0.into() },
+                        ..Default::default()
+                    });
+                    let p = tab.last_cursor_screen;
+                    viewport_stack = viewport_stack.push(iced::widget::pin(dica).position(iced::Point::new(p.x + 18.0, p.y + 18.0)));
+                }
+            }
+
             // HATCH's settings float at the drawing's top left (HPDLGMODE,
             // or seTtings).
             if self.model_space.hatch_dialog_mode != 0 || self.hatch_panel_shown {

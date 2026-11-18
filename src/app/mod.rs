@@ -21,6 +21,8 @@ mod block_cycle_order;
 mod block_editor;
 #[cfg(test)]
 mod block_editor_tests;
+#[cfg(test)]
+mod civil_tests;
 mod block_feedback;
 mod block_grip_set;
 mod block_lookup;
@@ -4182,6 +4184,8 @@ pub enum Message {
     Rename(crate::ui::window::rename::RenameMsg),
     Civil(crate::ui::window::civil_dialog::CivilMsg),
     ToolspaceFold(String),
+    /// TINs montados em segundo plano para a cota no mouse.
+    CivilTinsProntos(crate::app::civil::TinsProntos),
     Purge(crate::ui::window::purge::PurgeMsg),
     DwgProps(crate::ui::window::drawing_properties::DwgPropsMsg),
     GeographicLocation(crate::ui::window::geographic_location::GeographicLocationMsg),

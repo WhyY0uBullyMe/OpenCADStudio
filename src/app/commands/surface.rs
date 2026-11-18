@@ -50,22 +50,38 @@ impl OpenCADStudio {
     /// Nome da superfície selecionada no desenho (a inserção marcada com SURFACE:<nome>), se houver uma.
     pub(crate) fn civil_superficie_selecionada(&self, i: usize) -> Option<String> {
         let scene = &self.tabs[i].scene;
-        scene.selected_handles_in_order().into_iter().find_map(|h| {
-            let e = scene.document.get_entity(h)?;
-            e.common().extended_data.records().iter().find(|r| r.application_name == crate::app::civil::APP).and_then(|r| {
-                r.values.iter().find_map(|v| match v {
-                    document::xdata::XDataValue::String(t) => t.strip_prefix("SURFACE:").map(str::to_string),
-                    _ => None,
-                })
-            })
-        })
+        scene
+            .selected_handles_in_order()
+            .into_iter()
+            .find_map(|h| scene.document.get_entity(h).and_then(crate::app::civil::superficie_da_entidade))
     }
 
     pub(crate) fn civil_abrir_toolspace(&mut self) {
         if !self.show_toolspace {
             self.show_toolspace = true;
-            self.dock_open_at_default(crate::ui::dock::PanelId::Toolspace);
+            self.civil_encaixar_toolspace();
         }
+    }
+
+    /// Primeira vez: o Toolspace vai para a borda oposta à do Properties e essa borda passa a se esconder
+    /// sozinha (pedido do JP, 18/11: Properties sempre fixo, Toolspace só ao passar o mouse). No Open CAD Studio o
+    /// fixar vale por borda; depois disso o JP muda à vontade pelo alfinete.
+    fn civil_encaixar_toolspace(&mut self) {
+        use crate::app::config::DockSide;
+        use crate::ui::dock::PanelId;
+        if !self.dock.is_placed(PanelId::Toolspace) {
+            let lado = match self.dock.location(PanelId::Properties) {
+                Some((DockSide::Right, _)) => DockSide::Left,
+                _ => DockSide::Right,
+            };
+            self.dock.dock(PanelId::Toolspace, lado, 0);
+            match lado {
+                DockSide::Left => self.dock.auto_hide.0 = true,
+                DockSide::Right => self.dock.auto_hide.1 = true,
+            }
+            self.save_config();
+        }
+        self.dock_reveal(PanelId::Toolspace);
     }
 
     pub(super) fn dispatch_surface(&mut self, cmd: &str, i: usize) -> Option<Task<Message>> {
@@ -77,7 +93,7 @@ impl OpenCADStudio {
             "TOOLSPACE" => {
                 self.show_toolspace ^= true;
                 if self.show_toolspace {
-                    self.dock_open_at_default(crate::ui::dock::PanelId::Toolspace);
+                    self.civil_encaixar_toolspace();
                 }
             }
             "CREATESURFACE" => {

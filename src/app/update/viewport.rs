@@ -8968,6 +8968,16 @@ properties={:.1}ms picked={}",
             );
             return Some(Task::none());
         }
+        // Agral Civil: duplo clique na superfície abre Surface Properties (como no Civil 3D), não o editor
+        // de bloco da inserção que a desenha.
+        if let Some(nome) = self.tabs[i]
+            .scene
+            .document
+            .get_entity(handle)
+            .and_then(crate::app::civil::superficie_da_entidade)
+        {
+            return Some(self.dispatch_command(&format!("SURFACEPROPERTIES {nome}")));
+        }
         // Table double-click: shared TABLEDIT editor setup. A
         // grid miss returns NoCell and falls through to the
         // other text/entity editors below; an editable cell or

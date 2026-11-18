@@ -178,6 +178,15 @@ pub(super) struct DocumentTab {
     /// thread) checks it before touching the drawing: the tab keeps its id,
     /// the document does not.
     pub(super) document_generation: u64,
+    /// Agral Civil: TIN de cada superfície já montada nesta sessão, com o desenho (handles) de quando foi
+    /// montada, para a cota no mouse. Se o desenho da superfície mudou (desfazer, outra montagem) a entrada vale
+    /// como velha.
+    pub(crate) civil_tins:
+        std::collections::HashMap<String, (Vec<document::Handle>, std::sync::Arc<agral_civil_motor::tin::Tin>)>,
+    /// Uma montagem em segundo plano para a cota no mouse está rodando.
+    pub(crate) civil_tins_pendente: bool,
+    /// `edit_revision` da última conferência de TINs faltando (evita ler as superfícies a cada passo do mouse).
+    pub(crate) civil_tins_conferido: Option<u64>,
     /// A whole document replaced this tab's content (file open, template new,
     /// system open) and native plugins have not been told yet: the
     /// message boundary (`OpenCADStudio::notify_plugins_document_opened`,
@@ -835,6 +844,9 @@ impl DocumentTab {
             ifccad_session: None,
             edit_revision: 0,
             document_generation: 0,
+            civil_tins: Default::default(),
+            civil_tins_pendente: false,
+            civil_tins_conferido: None,
             document_opened_pending: true,
             prev_selection: Vec::new(),
             tab_title: format!("Drawing{}", n),
@@ -955,6 +967,8 @@ impl DocumentTab {
         crate::modules::draw::draw::attdef::session().forget_place_of(self.id);
         crate::modules::annotate::text::forget_place_of(self.id);
         self.document_generation = self.document_generation.wrapping_add(1);
+        self.civil_tins.clear();
+        self.civil_tins_conferido = None;
         self.ifccad_session = ifccad_session;
         self.document_opened_pending = true;
     }
@@ -964,6 +978,8 @@ impl DocumentTab {
     /// cleared drawing sees the new generation and drops its result.
     pub(super) fn note_drawing_cleared(&mut self) {
         self.document_generation = self.document_generation.wrapping_add(1);
+        self.civil_tins.clear();
+        self.civil_tins_conferido = None;
     }
 
     pub(super) fn tab_display_name(&self) -> String {

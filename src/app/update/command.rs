@@ -3958,6 +3958,9 @@ impl OpenCADStudio {
         } else {
             value
         };
+        if field == "civil_surface_style" {
+            return self.civil_estilo_pelo_properties(&value);
+        }
         if field == "authoring_alignment_type" {
             return self.set_authoring_alignment_type(&value);
         }

@@ -6220,7 +6220,10 @@ impl OpenCADStudio {
             }
 
             // ── Cursor / viewport messages ─────────────────────────────────
-            Message::CursorMoved(p, viewport) => self.on_cursor_moved(p, viewport),
+            Message::CursorMoved(p, viewport) => {
+                let t = self.on_cursor_moved(p, viewport);
+                Task::batch([t, self.civil_preparar_cota()])
+            }
 
             // A multi-finger gesture owns the pointer while it runs.
             Message::ViewportMove(_)
@@ -14481,6 +14484,10 @@ impl OpenCADStudio {
             Message::BlockEditPickerApply => self.apply_bedit_dialog(),
             Message::Rename(msg) => self.on_rename_dialog(msg),
             Message::Civil(msg) => self.on_civil_dialog(msg),
+            Message::CivilTinsProntos(t) => {
+                self.civil_tins_prontos(t);
+                Task::none()
+            }
             Message::ToolspaceFold(chave) => {
                 if !self.toolspace_fechados.remove(&chave) {
                     self.toolspace_fechados.insert(chave);

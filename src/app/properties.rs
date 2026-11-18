@@ -2904,6 +2904,18 @@ impl OpenCADStudio {
                             });
                         }
                     }
+                    // Agral Civil: a inserção que desenha uma superfície aparece como "TIN Surface", não como
+                    // bloco. Fica só a seção geral (camada, cor) da inserção mais as seções da superfície.
+                    let (sections, title) = match crate::app::civil::superficie_da_entidade(source_entity)
+                        .and_then(|n| self.civil_secoes_propriedades(i, &n))
+                    {
+                        Some(civil) => {
+                            let mut s: Vec<_> = sections.into_iter().take(1).collect();
+                            s.extend(civil);
+                            (s, "TIN Surface".to_string())
+                        }
+                        None => (sections, title),
+                    };
                     ui::PropertiesPanel {
                         sections,
                         title,
