@@ -34,6 +34,15 @@ pub(crate) fn superficie_do_corredor(eixo: &str) -> String {
     format!("{eixo}-CORR")
 }
 
+/// Textos do desenho (entregas) em português com vírgula decimal (JP, 19/11); o programa e os comandos ficam em
+/// inglês.
+use crate::app::civil_materiais::br;
+
+/// Estaca para o desenho: "0+020,00".
+fn est_br(e: f64) -> String {
+    texto_da_estaca(e).replace('.', ",")
+}
+
 fn bloco(tipo: &str, nome: &str) -> String {
     format!("AGRAL_{tipo}_{nome}")
 }
@@ -417,7 +426,11 @@ impl OpenCADStudio {
         }
         // Limite: saia esquerda em frente e a direita de volta (só onde as duas existem em todas as seções).
         let mut limite: Vec<[f64; 3]> = Vec::new();
-        let completas: Vec<&SecaoCorredor> = secoes.iter().filter(|s| s.completa).collect();
+        // Entram as seções com saia dos dois lados: as que acharam o terreno e as que pararam na borda da superfície.
+        let completas: Vec<&SecaoCorredor> = secoes
+            .iter()
+            .filter(|s| s.pontos.first().is_some_and(|p| p.2 == Codigo::Saia) && s.pontos.last().is_some_and(|p| p.2 == Codigo::Saia))
+            .collect();
         for s in &completas {
             let (o, z, _) = s.pontos[0];
             let p = al.ponto_com_offset(s.estaca, o);
@@ -468,14 +481,19 @@ impl OpenCADStudio {
         let msg_sup = self.civil_refazer(i, &nome_sup)?;
         let (va, vc) = volumes(secoes);
         a.volumes = Some((va, vc));
-        let incompletas = secoes.len() - completas.len();
-        Ok(format!(
-            "Corridor: {} sections, fill {:.1} m3, cut {:.1} m3{}. {msg_sup}",
-            secoes.len(),
-            va,
-            vc,
-            if incompletas > 0 { format!(" ({incompletas} sections did not reach the terrain)") } else { String::new() }
-        ))
+        let na_borda = secoes.iter().filter(|s| s.na_borda).count();
+        let longe = secoes.iter().filter(|s| !s.completa && !s.na_borda).count();
+        let mut avisos = String::new();
+        if na_borda > 0 {
+            avisos.push_str(&format!(
+                " {na_borda} sections reach the edge of surface '{}': the slope goes to the edge and the volume is counted up to it; extend the surface to close them.",
+                a.superficie
+            ));
+        }
+        if longe > 0 {
+            avisos.push_str(&format!(" {longe} sections found no terrain within 5 km."));
+        }
+        Ok(format!("Corridor: {} sections, cut {:.1} m³, fill {:.1} m³.{avisos} {msg_sup}", secoes.len(), vc, va))
     }
 
     pub(crate) fn civil_apagar_alinhamento(&mut self, i: usize, nome: &str) -> Result<String, String> {
@@ -682,7 +700,7 @@ fn desenho_da_planta(al: &Alinhamento, intervalo: f64) -> Vec<EntityType> {
         if rot.cos() < -1e-9 {
             rot += std::f64::consts::PI;
         }
-        v.push(texto(texto_da_estaca(e), p, alt * 0.8, rot, true, CAMADA_ESTACA));
+        v.push(texto(est_br(e), p, alt * 0.8, rot, true, CAMADA_ESTACA));
     }
     v
 }
@@ -743,8 +761,8 @@ fn desenho_do_perfil(
     let mut z = base;
     while z <= topo + 1e-9 {
         out.push(linha([x0, py(z)], [x0 + largura, py(z)], CAMADA_GRADE));
-        rotulo(&mut out, format!("{z:.2}"), [x0 - alt * 0.6, py(z)], true);
-        rotulo(&mut out, format!("{z:.2}"), [x0 + largura + alt * 0.6, py(z)], false);
+        rotulo(&mut out, br(z, 2), [x0 - alt * 0.6, py(z)], true);
+        rotulo(&mut out, br(z, 2), [x0 + largura + alt * 0.6, py(z)], false);
         z += dz;
     }
     for e in &estacas {
@@ -775,14 +793,14 @@ fn desenho_do_perfil(
                 let c = [px(p.estaca), py(p.cota)];
                 out.push(linha([c[0] - alt * 0.4, c[1] - alt * 0.4], [c[0] + alt * 0.4, c[1] + alt * 0.4], CAMADA_GREIDE));
                 out.push(linha([c[0] - alt * 0.4, c[1] + alt * 0.4], [c[0] + alt * 0.4, c[1] - alt * 0.4], CAMADA_GREIDE));
-                out.push(texto(format!("PVI {} / {:.3}", texto_da_estaca(p.estaca), p.cota), [c[0], c[1] + alt * 1.5], alt * 0.8, 0.0, true, CAMADA_GREIDE));
+                out.push(texto(format!("PIV {} / {}", est_br(p.estaca), br(p.cota, 3)), [c[0], c[1] + alt * 1.5], alt * 0.8, 0.0, true, CAMADA_GREIDE));
             }
         }
     }
     // Faixa de cotas embaixo: só as linhas que têm dado.
-    let mut linhas_faixa = vec!["Station", "Terrain"];
+    let mut linhas_faixa = vec!["Estaca", "Terreno"];
     if greide.is_some() {
-        linhas_faixa.extend(["Design", "Fill(+)/Cut(-)"]);
+        linhas_faixa.extend(["Greide", "Aterro(+)/Corte(-)"]);
     }
     let h = alt * 7.0;
     let fundo = y0 - h * linhas_faixa.len() as f64;
@@ -798,11 +816,11 @@ fn desenho_do_perfil(
         let x = px(*e);
         let q = al.ponto_na_estaca(*e).0;
         let zt = tin.cota_em(q[0], q[1]);
-        let mut col = vec![texto_da_estaca(*e), zt.map_or(String::new(), |z| format!("{z:.3}"))];
+        let mut col = vec![est_br(*e), zt.map_or(String::new(), |z| br(z, 3))];
         if greide.is_some() {
-            col.push(gz(*e).map_or(String::new(), |z| format!("{z:.3}")));
+            col.push(gz(*e).map_or(String::new(), |z| br(z, 3)));
             col.push(match (zt, gz(*e)) {
-                (Some(t), Some(g)) => format!("{:+.3}", g - t),
+                (Some(t), Some(g)) => format!("{}{}", if g >= t { "+" } else { "" }, br(g - t, 3)),
                 _ => String::new(),
             });
         }
@@ -811,7 +829,7 @@ fn desenho_do_perfil(
         }
     }
     out.push(texto(
-        format!("PROFILE {nome}   Surface: {superficie}   V {ex}x"),
+        format!("PERFIL {nome}   Superfície: {superficie}   Exagero vertical {}x", br(ex, 0)),
         [x0 + largura / 2.0, py(topo) + alt * 2.5],
         alt * 1.6,
         0.0,
@@ -926,7 +944,7 @@ fn desenho_das_secoes(
         let mut z = base;
         while z <= base + altura + 1e-9 {
             out.push(linha([x0, py(z)], [x0 + largura, py(z)], CAMADA_GRADE));
-            out.push(texto(format!("{z:.1}"), [x0 - alt * 0.3, py(z)], alt * 0.5, 0.0, false, CAMADA_TEXTO));
+            out.push(texto(br(z, 1), [x0 - alt * 0.3, py(z)], alt * 0.5, 0.0, false, CAMADA_TEXTO));
             if let EntityType::Text(t) = out.last_mut().unwrap() {
                 t.horizontal_alignment = TextHorizontalAlignment::Right;
                 t.vertical_alignment = TextVerticalAlignment::Middle;
@@ -962,7 +980,7 @@ fn desenho_das_secoes(
                 .collect();
             out.extend(polilinha(&pts, CAMADA_CORREDOR));
             out.push(texto(
-                format!("Cut {:.2} m²  Fill {:.2} m²", c.area_corte, c.area_aterro),
+                format!("Corte {} m²  Aterro {} m²", br(c.area_corte, 2), br(c.area_aterro, 2)),
                 [x0 + largura / 2.0, y0 - alt * 1.8],
                 alt * 0.6,
                 0.0,
@@ -973,12 +991,12 @@ fn desenho_das_secoes(
         if let Some(zg) = greide.and_then(|g| g.cota_em(*e)) {
             let c = [px(0.0), py(zg)];
             out.push(linha([c[0] - alt, c[1]], [c[0] + alt, c[1]], CAMADA_GREIDE));
-            out.push(texto(format!("{zg:.3}"), [c[0], c[1] + alt * 0.6], alt * 0.5, 0.0, true, CAMADA_GREIDE));
+            out.push(texto(br(zg, 3), [c[0], c[1] + alt * 0.6], alt * 0.5, 0.0, true, CAMADA_GREIDE));
         }
         let zt = tin.cota_em(al.ponto_na_estaca(*e).0[0], al.ponto_na_estaca(*e).0[1]);
         let titulo = match zt {
-            Some(z) => format!("{}  TN {:.3}", texto_da_estaca(*e), z),
-            None => texto_da_estaca(*e),
+            Some(z) => format!("Estaca {}  Terreno {}", est_br(*e), br(z, 3)),
+            None => format!("Estaca {}", est_br(*e)),
         };
         out.push(texto(titulo, [x0 + largura / 2.0, y_topo + alt * 1.2], alt * 0.8, 0.0, true, CAMADA_TEXTO));
     }

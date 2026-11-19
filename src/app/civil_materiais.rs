@@ -127,7 +127,7 @@ impl OpenCADStudio {
         for l in &linhas {
             csv.push_str(&format!(
                 "{};{};{};{};{};{};{};{}\n",
-                texto_da_estaca(l.estaca),
+                texto_da_estaca(l.estaca).replace('.', ","),
                 br(l.area_corte, 2),
                 br(l.area_aterro, 2),
                 br(l.vol_corte, 2),
@@ -227,7 +227,7 @@ fn desenho_da_tabela(a: &AlinhamentoDwg, linhas: &[LinhaMaterial], o: [f64; 2], 
     for (k, l) in linhas.iter().enumerate() {
         colunas(
             [
-                texto_da_estaca(l.estaca),
+                texto_da_estaca(l.estaca).replace('.', ","),
                 br(l.area_corte, 2),
                 br(l.area_aterro, 2),
                 br(l.vol_corte, 2),

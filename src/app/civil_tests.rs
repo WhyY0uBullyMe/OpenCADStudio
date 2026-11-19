@@ -298,7 +298,7 @@ fn alinhamento_perfil_greide_e_secoes() {
     let al = a.geometria().unwrap();
     assert!((al.comprimento() - 160.0).abs() < 1e-9);
     let rot = textos_do_bloco(&app, "AGRAL_ALINHAMENTO_EIXO1");
-    for e in ["0+000.00", "0+020.00", "0+160.00"] {
+    for e in ["0+000,00", "0+020,00", "0+160,00"] {
         assert!(rot.iter().any(|t| t == e), "rótulo {e} em {rot:?}");
     }
     // Dica do mouse perto do eixo: estaca 80 (x = 100), 5 m à direita (sul, andando para leste).
@@ -310,7 +310,8 @@ fn alinhamento_perfil_greide_e_secoes() {
     let faixa = textos_do_bloco(&app, "AGRAL_PERFIL_EIXO1");
     for (e, z) in [(0.0, 101.0), (80.0, 105.0), (160.0, 109.0)] {
         let _ = e;
-        assert!(faixa.iter().any(|t| t == &format!("{z:.3}")), "cota {z:.3} na faixa");
+        let z = format!("{z:.3}").replace('.', ",");
+        assert!(faixa.iter().any(|t| *t == z), "cota {z} na faixa");
     }
     // Mouse dentro da vista de perfil: estaca e cota do ponto, e a cota do terreno ali.
     let v = app.civil_al_ler(i, "EIXO1").unwrap().vista.unwrap();
@@ -321,18 +322,18 @@ fn alinhamento_perfil_greide_e_secoes() {
     // Greide horizontal a 106 m: aterro na estaca 0 (+5) e corte na 160 (-3).
     command(&mut app, "CREATEPROFILE EIXO1 0,106 160,106");
     let faixa = textos_do_bloco(&app, "AGRAL_PERFIL_EIXO1");
-    assert!(faixa.iter().any(|t| t == "+5.000"), "aterro de 5 m na estaca 0: {faixa:?}");
-    assert!(faixa.iter().any(|t| t == "-3.000"), "corte de 3 m na estaca 160");
+    assert!(faixa.iter().any(|t| t == "+5,000"), "aterro de 5 m na estaca 0: {faixa:?}");
+    assert!(faixa.iter().any(|t| t == "-3,000"), "corte de 3 m na estaca 160");
     assert_eq!(app.civil_al_ler(i, "EIXO1").unwrap().pivs.len(), 2);
     // Seções a cada 40 m, 30 m para cada lado.
     command(&mut app, "CREATESECTIONS EIXO1 40 30 30 3 400,0");
     let sec = textos_do_bloco(&app, "AGRAL_SECOES_EIXO1");
-    assert!(sec.iter().any(|t| t == "0+080.00  TN 105.000"), "título da seção 80 com a cota do terreno: {sec:?}");
-    assert!(sec.iter().any(|t| t == "106.000"), "cota do greide na seção");
+    assert!(sec.iter().any(|t| t == "Estaca 0+080,00  Terreno 105,000"), "título da seção 80 com a cota do terreno: {sec:?}");
+    assert!(sec.iter().any(|t| t == "106,000"), "cota do greide na seção");
     // A superfície muda (sobe 2 m): perfil e seções acompanham.
     command(&mut app, "_SURFACEEDIT TN EDIT_RAISELOWER 2");
     let faixa = textos_do_bloco(&app, "AGRAL_PERFIL_EIXO1");
-    assert!(faixa.iter().any(|t| t == "103.000"), "perfil refeito com a superfície nova: {faixa:?}");
+    assert!(faixa.iter().any(|t| t == "103,000"), "perfil refeito com a superfície nova: {faixa:?}");
     // Desfazer e apagar.
     command(&mut app, "DELETEALIGNMENT EIXO1");
     assert!(app.civil_al_ler(i, "EIXO1").is_err());
@@ -427,7 +428,7 @@ fn corredor_de_barragem_em_terreno_plano() {
     // Seções mostram o gabarito e a área.
     command(&mut app, "CREATESECTIONS EIXO1 40 50 50 3 400,0");
     let sec = textos_do_bloco(&app, "AGRAL_SECOES_EIXO1");
-    assert!(sec.iter().any(|t| t.contains("Fill 322.0")), "área de aterro na seção: {sec:?}");
+    assert!(sec.iter().any(|t| t.contains("Aterro 322,0")), "área de aterro na seção: {sec:?}");
     // Mudou o greide: o corredor acompanha.
     command(&mut app, "CREATEPROFILE EIXO1 0,108 160,108");
     let (va2, _) = app.civil_al_ler(i, "EIXO1").unwrap().volumes.unwrap();
@@ -608,13 +609,13 @@ fn compute_materials_tabela_e_excel() {
     // Tabela no desenho e CSV para o Excel.
     command(&mut app, "CREATEVOLUMETABLE EIXO1 500,0");
     let textos = textos_do_bloco(&app, "AGRAL_VOLUMES_EIXO1");
-    assert!(textos.iter().any(|t| t == "TOTAL") && textos.iter().any(|t| t == "0+160.00"), "{textos:?}");
+    assert!(textos.iter().any(|t| t == "TOTAL") && textos.iter().any(|t| t == "0+160,00"), "{textos:?}");
     assert!(textos.iter().any(|t| t == &crate::app::civil_materiais::br(u.acum_aterro, 2)));
     let csv = dir.join("vol.csv");
     command(&mut app, &format!("EXPORTMATERIALS EIXO1 \"{}\"", csv.display()));
     let conteudo = std::fs::read_to_string(&csv).unwrap();
     assert_eq!(conteudo.lines().count(), 2 + 9);
-    assert!(conteudo.contains("Estaca;Área corte (m²)") && conteudo.contains("0+160.00;"));
+    assert!(conteudo.contains("Estaca;Área corte (m²)") && conteudo.contains("0+160,00;"));
 
     // Mudou o fator: a tabela acompanha.
     command(&mut app, "COMPUTEMATERIALS EIXO1 TN EIXO1-CORR 1 1");

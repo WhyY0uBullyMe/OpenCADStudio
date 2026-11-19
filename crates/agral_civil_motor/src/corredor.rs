@@ -67,32 +67,55 @@ pub struct SecaoCorredor {
     pub area_corte: f64,
     /// Achou o terreno dos dois lados.
     pub completa: bool,
+    /// Um dos lados parou na borda da superfície (o volume vai só até ali).
+    pub na_borda: bool,
+}
+
+/// Como terminou um lado da seção.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Fim {
+    /// Achou o terreno (a saia).
+    Terreno,
+    /// A superfície acabou antes: o talude foi até a borda dela (JP, 19/11: "estenda o talude").
+    Borda,
+    /// Não achou o terreno dentro do alcance.
+    Longe,
+}
+
+/// Onde o trecho de `p` a `q` cruza o terreno.
+enum Cruza {
+    Em((f64, f64)),
+    /// A superfície acabou no meio do trecho: o último ponto com terreno.
+    Borda((f64, f64)),
+    Nao,
 }
 
 /// Um lado: da borda da crista para fora. `sinal` = -1 esquerda, +1 direita. Devolve os pontos de fora para
-/// dentro do lado (sem a borda) e se achou o terreno.
+/// dentro do lado (sem a borda) e como terminou.
 fn lado(
     terreno: &dyn Fn(f64) -> Option<f64>,
     borda: (f64, f64),
     sinal: f64,
     talude: f64,
     a: &AssemblyBarragem,
-) -> (Vec<(f64, f64, Codigo)>, bool) {
+    alcance: f64,
+) -> (Vec<(f64, f64, Codigo)>, Fim) {
     let (o0, z0) = borda;
     let acima = |o: f64, z: f64| terreno(o).map(|t| z - t);
     let mut pts: Vec<(f64, f64, Codigo)> = Vec::new();
-    let Some(d0) = acima(o0, z0) else { return (pts, false) };
+    let Some(d0) = acima(o0, z0) else { return (pts, Fim::Borda) };
     // Caminha por trechos retos procurando onde a seção cruza o terreno.
-    let achar = |p: (f64, f64), q: (f64, f64)| -> Option<(f64, f64)> {
+    let achar = |p: (f64, f64), q: (f64, f64)| -> Cruza {
         let n = (((q.0 - p.0).abs() / 0.25).ceil() as usize).max(1);
-        let mut prev = (p.0, p.1, acima(p.0, p.1)?);
+        let Some(d) = acima(p.0, p.1) else { return Cruza::Borda(p) };
+        let mut prev = (p.0, p.1, d);
         for k in 1..=n {
             let t = k as f64 / n as f64;
             let o = p.0 + (q.0 - p.0) * t;
             let z = p.1 + (q.1 - p.1) * t;
-            let d = acima(o, z)?;
+            let Some(d) = acima(o, z) else { return Cruza::Borda((prev.0, prev.1)) };
             if prev.2 == 0.0 {
-                return Some((prev.0, prev.1));
+                return Cruza::Em((prev.0, prev.1));
             }
             if (d <= 0.0) != (prev.2 <= 0.0) || d == 0.0 {
                 // Bissecção no trecho [prev, atual].
@@ -102,7 +125,7 @@ fn lado(
                     let m = (lo + hi) / 2.0;
                     let om = a0.0 + (b0.0 - a0.0) * m;
                     let zm = a0.1 + (b0.1 - a0.1) * m;
-                    let dm = acima(om, zm)?;
+                    let Some(dm) = acima(om, zm) else { break };
                     if (dm <= 0.0) == (prev.2 <= 0.0) {
                         lo = m;
                     } else {
@@ -110,52 +133,85 @@ fn lado(
                     }
                 }
                 let m = (lo + hi) / 2.0;
-                return Some((a0.0 + (b0.0 - a0.0) * m, a0.1 + (b0.1 - a0.1) * m));
+                return Cruza::Em((a0.0 + (b0.0 - a0.0) * m, a0.1 + (b0.1 - a0.1) * m));
             }
             prev = (o, z, d);
         }
-        None
+        Cruza::Nao
     };
     if d0 < 0.0 {
         // Corte: sobe com o talude de corte até o terreno.
-        let q = (o0 + sinal * a.alcance, z0 + a.alcance / a.talude_corte.max(1e-6));
+        let q = (o0 + sinal * alcance, z0 + alcance / a.talude_corte.max(1e-6));
         return match achar((o0, z0), q) {
-            Some((o, z)) => (vec![(o, z, Codigo::Saia)], true),
-            None => (pts, false),
+            Cruza::Em((o, z)) => (vec![(o, z, Codigo::Saia)], Fim::Terreno),
+            Cruza::Borda((o, z)) => (vec![(o, z, Codigo::Saia)], Fim::Borda),
+            Cruza::Nao => (pts, Fim::Longe),
         };
     }
-    // Aterro: desce em degraus (talude, berma, talude, ...).
+    // Aterro: desce em degraus (talude, berma, talude, ...). Sem berma, um talude só até o alcance.
     let (mut o, mut z) = (o0, z0);
     let mut k = 0u8;
     let mut percorrido = 0.0;
     loop {
-        let queda = if a.altura_berma > 0.0 && a.largura_berma > 0.0 { a.altura_berma } else { 1e6 };
+        let queda = if a.altura_berma > 0.0 && a.largura_berma > 0.0 { a.altura_berma } else { alcance / talude.max(1e-6) };
         let fim = (o + sinal * queda * talude, z - queda);
-        if let Some((oi, zi)) = achar((o, z), fim) {
-            pts.push((oi, zi, Codigo::Saia));
-            break;
+        match achar((o, z), fim) {
+            Cruza::Em((oi, zi)) => {
+                pts.push((oi, zi, Codigo::Saia));
+                break;
+            }
+            Cruza::Borda((oi, zi)) => {
+                pts.push((oi, zi, Codigo::Saia));
+                pts.reverse();
+                return (pts, Fim::Borda);
+            }
+            Cruza::Nao => {}
         }
         percorrido += queda * talude;
-        if percorrido > a.alcance {
-            return (Vec::new(), false);
-        }
         // No máximo 200 bermas por lado (revisão 19/11: berma de altura minúscula estourava o contador).
-        if k >= 200 {
-            return (Vec::new(), false);
+        if percorrido > alcance || k >= 200 {
+            return (Vec::new(), Fim::Longe);
         }
         k += 1;
         pts.push((fim.0, fim.1, Codigo::BermaInterna(k)));
         let fim_berma = (fim.0 + sinal * a.largura_berma, fim.1);
-        if let Some((oi, zi)) = achar(fim, fim_berma) {
-            pts.push((oi, zi, Codigo::Saia));
-            break;
+        match achar(fim, fim_berma) {
+            Cruza::Em((oi, zi)) => {
+                pts.push((oi, zi, Codigo::Saia));
+                break;
+            }
+            Cruza::Borda((oi, zi)) => {
+                pts.push((oi, zi, Codigo::Saia));
+                pts.reverse();
+                return (pts, Fim::Borda);
+            }
+            Cruza::Nao => {}
         }
         pts.push((fim_berma.0, fim_berma.1, Codigo::BermaExterna(k)));
         o = fim_berma.0;
         z = fim_berma.1;
     }
     pts.reverse();
-    (pts, true)
+    (pts, Fim::Terreno)
+}
+
+/// Um lado, estendendo o talude até achar o terreno: tenta o alcance do assembly e, se não achar, 4 vezes mais,
+/// até 5 km (JP, 19/11: "estenda o talude").
+fn lado_estendido(
+    terreno: &dyn Fn(f64) -> Option<f64>,
+    borda: (f64, f64),
+    sinal: f64,
+    talude: f64,
+    a: &AssemblyBarragem,
+) -> (Vec<(f64, f64, Codigo)>, Fim) {
+    let mut alcance = a.alcance.max(1.0);
+    loop {
+        let r = lado(terreno, borda, sinal, talude, a, alcance);
+        if r.1 != Fim::Longe || alcance >= 5000.0 {
+            return r;
+        }
+        alcance = (alcance * 4.0).min(5000.0);
+    }
 }
 
 /// Seção do corredor na estaca, com a cota do greide `z_eixo` no eixo.
@@ -176,8 +232,8 @@ pub fn secao_do_corredor(tin: &Tin, al: &Alinhamento, estaca: f64, z_eixo: f64, 
     } else {
         (a.talude_jusante, a.talude_montante)
     };
-    let (esq, ok_e) = lado(&terreno, (-meia, z_esq), -1.0, tal_esq, a);
-    let (mut dir, ok_d) = lado(&terreno, (meia, z_dir), 1.0, tal_dir, a);
+    let (esq, fim_e) = lado_estendido(&terreno, (-meia, z_esq), -1.0, tal_esq, a);
+    let (mut dir, fim_d) = lado_estendido(&terreno, (meia, z_dir), 1.0, tal_dir, a);
     dir.reverse();
     let mut pontos = esq;
     pontos.push((-meia, z_esq, Codigo::Crista));
@@ -216,7 +272,14 @@ pub fn secao_do_corredor(tin: &Tin, al: &Alinhamento, estaca: f64, z_eixo: f64, 
             }
         }
     }
-    SecaoCorredor { estaca, pontos, area_aterro: aterro, area_corte: corte, completa: ok_e && ok_d }
+    SecaoCorredor {
+        estaca,
+        pontos,
+        area_aterro: aterro,
+        area_corte: corte,
+        completa: fim_e == Fim::Terreno && fim_d == Fim::Terreno,
+        na_borda: fim_e == Fim::Borda || fim_d == Fim::Borda,
+    }
 }
 
 /// Volumes pelo método das áreas médias entre seções vizinhas: (aterro, corte) em m³.
@@ -265,6 +328,35 @@ mod testes {
         let (va, vc) = volumes(&secoes);
         assert!((va - esperado * 200.0).abs() / (esperado * 200.0) < 0.005, "{va}");
         assert!(vc < 1e-6);
+    }
+
+    /// JP, 19/11: o talude que sai da superfície vai até a borda dela (e não some), e o volume conta até ali.
+    #[test]
+    fn talude_vai_ate_a_borda_da_superficie() {
+        // Plano a 100 só até y = +20 (a esquerda do eixo é +y): o montante precisaria ir até -36.
+        let v = vec![[-1000.0, -1000.0, 100.0], [1000.0, -1000.0, 100.0], [1000.0, 20.0, 100.0], [-1000.0, 20.0, 100.0]];
+        let tin = Tin::novo(v, vec![[0, 1, 2], [0, 2, 3]]);
+        let a = AssemblyBarragem { decl_crista: 0.0, ..Default::default() };
+        let s = secao_do_corredor(&tin, &eixo(), 100.0, 110.0, &a);
+        assert!(!s.completa && s.na_borda);
+        let saia_e = s.pontos.first().unwrap();
+        // Na borda (offset -20): 17 m de talude 3:1 depois da crista, 24 m dão a berma em -27: cota 110 - 17/3.
+        assert!((saia_e.0 + 20.0).abs() < 0.3, "{saia_e:?}");
+        assert!((saia_e.1 - (110.0 - 17.0 / 3.0)).abs() < 0.1, "{saia_e:?}");
+        // Área = crista + o montante até a borda + o jusante inteiro: trapézio de 10 a 4,33 m em 17 m.
+        let montante = (10.0 + (10.0 - 17.0 / 3.0)) / 2.0 * 17.0;
+        let esperado = 60.0 + montante + (64.0 + 32.0 + 6.0 + 4.0);
+        assert!((s.area_aterro - esperado).abs() < 0.5, "{} x {esperado}", s.area_aterro);
+    }
+
+    /// Alcance curto no assembly: estende o talude sozinho até achar o terreno.
+    #[test]
+    fn alcance_curto_se_estende() {
+        let tin = plano(100.0);
+        let a = AssemblyBarragem { decl_crista: 0.0, alcance: 5.0, ..Default::default() };
+        let s = secao_do_corredor(&tin, &eixo(), 100.0, 110.0, &a);
+        assert!(s.completa, "{:?}", s.pontos.first());
+        assert!((s.pontos.first().unwrap().0 + 36.0).abs() < 1e-6);
     }
 
     #[test]

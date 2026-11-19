@@ -70,6 +70,13 @@ Referência para trocar de agente (Claude Code, Codex ou outro) sem perder o que
     Toolspace com eixo errado, apagar eixo sem perguntar, janela que não recarregava ao trocar de eixo, Enter nas
     janelas. Cartão de progresso com n/N tiles no download da imagem. Relatório e pendências em
     `docs/agral/revisao-geral-19-11.md`.
+- **JP (19/11):** seção do corredor que não chega ao terreno: "estenda o talude"; desenho pode ser em português, mas o
+  programa e os comandos ficam em inglês; "faz as intervenções e gere" (instalador do Windows).
+  - Feito: o talude continua até achar o terreno (o alcance cresce sozinho até 5 km); se a superfície acabar antes,
+    o talude vai até a borda dela, o volume conta até ali e o aviso diz quantas seções pararam na borda (ampliar a
+    superfície fecha). Corrigida também a lentidão do talude sem berma. Textos desenhados em português com vírgula
+    decimal (estacas, cotas, faixa do perfil, seções, PIV, tabela e CSV); telas, mensagens e comandos em inglês.
+  - Instalador do Windows gerado a pedido dele.
 
 ### 18/11/2026 (Agral CAD, com o Claude)
 - **Retorno do JP sobre o teste no Windows:** "abre normal", mas "tá muito mal estruturado": foi feito um plugin no
