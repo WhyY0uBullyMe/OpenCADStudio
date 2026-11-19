@@ -228,8 +228,9 @@ impl OpenCADStudio {
     /// `ALIGNMENTSTATIONS`: estaca inicial e intervalo dos rótulos.
     pub(crate) fn civil_estacas(&mut self, i: usize, nome: &str, inicial: f64, intervalo: f64) -> Result<String, String> {
         let mut a = self.civil_al_ler(i, nome)?;
-        if !(intervalo > 0.0) {
-            return Err("The station interval must be more than zero.".into());
+        let comp = a.geometria().map_or(0.0, |g| g.comprimento());
+        if !(intervalo.is_finite() && intervalo >= 0.5 && inicial.is_finite()) || comp / intervalo > 20_000.0 {
+            return Err("The station interval must be at least 0.5 m (and up to 20 000 stations).".into());
         }
         self.push_undo_snapshot(i, "ALIGNMENTSTATIONS");
         a.estaca_inicial = inicial;
@@ -240,6 +241,12 @@ impl OpenCADStudio {
 
     /// `CREATEPROFILEVIEW`: vista de perfil do terreno (e do greide, se houver) com o canto em `origem`.
     pub(crate) fn civil_vista_perfil(&mut self, i: usize, nome: &str, superficie: &str, exagero: f64, origem: [f64; 2]) -> Result<String, String> {
+        if superficie.eq_ignore_ascii_case(&superficie_do_corredor(nome)) {
+            return Err(format!("'{superficie}' is this alignment's own corridor surface: choose the existing ground."));
+        }
+        if !(exagero.is_finite() && exagero > 0.0) {
+            return Err("Vertical exaggeration must be more than zero.".into());
+        }
         let mut a = self.civil_al_ler(i, nome)?;
         let s = self.civil_ler(i, superficie)?;
         if !(exagero > 0.0) {
@@ -267,8 +274,12 @@ impl OpenCADStudio {
     /// `origem` (canto de cima à esquerda).
     pub(crate) fn civil_definir_secoes(&mut self, i: usize, nome: &str, s: Secoes) -> Result<String, String> {
         let mut a = self.civil_al_ler(i, nome)?;
-        if !(s.intervalo > 0.0 && s.esquerda >= 0.0 && s.direita >= 0.0 && s.esquerda + s.direita > 0.0) {
-            return Err("Interval and widths must be positive.".into());
+        let comp = a.geometria().map_or(0.0, |g| g.comprimento());
+        if !(s.intervalo.is_finite() && s.intervalo >= 0.5 && s.esquerda >= 0.0 && s.direita >= 0.0 && s.esquerda + s.direita > 0.0)
+            || !(s.esquerda + s.direita <= 10_000.0)
+            || comp / s.intervalo > 5_000.0
+        {
+            return Err("Sample line interval at least 0.5 m (up to 5 000 lines) and widths positive (up to 10 km in all).".into());
         }
         if a.superficie.is_empty() {
             return Err(format!("Alignment '{nome}' has no surface yet: create its profile view first, or name the surface."));
@@ -329,6 +340,10 @@ impl OpenCADStudio {
         if !(asm.crista > 0.0 && asm.talude_montante > 0.0 && asm.talude_jusante > 0.0 && asm.talude_corte > 0.0) {
             return Err("Crest width and slopes must be positive.".into());
         }
+        let numeros = [asm.crista, asm.decl_crista, asm.talude_montante, asm.talude_jusante, asm.altura_berma, asm.largura_berma, asm.talude_corte];
+        if numeros.iter().any(|v| !v.is_finite()) || (asm.altura_berma > 0.0 && asm.altura_berma < 0.5) || asm.largura_berma < 0.0 {
+            return Err("Berm every 0 (none) or at least 0.5 m of height; berm width not negative.".into());
+        }
         self.push_undo_snapshot(i, "CREATEASSEMBLY");
         a.assembly = Some(asm);
         self.civil_al_gravar(i, &a, false)?;
@@ -339,8 +354,8 @@ impl OpenCADStudio {
     /// `CREATECORRIDOR`: corredor do eixo com seções a cada `passo` m (e nas estacas notáveis).
     pub(crate) fn civil_criar_corredor(&mut self, i: usize, nome: &str, passo: f64) -> Result<String, String> {
         let mut a = self.civil_al_ler(i, nome)?;
-        if !(passo > 0.0) {
-            return Err("The corridor frequency must be more than zero.".into());
+        if !(passo.is_finite() && passo >= 0.5) {
+            return Err("The corridor frequency must be at least 0.5 m.".into());
         }
         if a.pivs.is_empty() {
             return Err(format!("Alignment '{nome}' has no design profile: use CREATEPROFILE first (the crest elevation)."));
@@ -518,6 +533,19 @@ impl OpenCADStudio {
 
     /// Redesenha tudo do alinhamento: planta, vista de perfil (se houver) e seções (se houver).
     pub(crate) fn civil_redesenhar_alinhamento(&mut self, i: usize, nome: &str) -> Result<String, String> {
+        // Um eixo que usa como terreno a superfície de um corredor (dele ou de outro que usa a dele) se
+        // remontaria sem fim (revisão 19/11): passa de 4 níveis, para.
+        thread_local!(static FUNDO: std::cell::Cell<u32> = const { std::cell::Cell::new(0) });
+        if FUNDO.with(|f| f.get()) >= 4 {
+            return Err(format!("Alignment '{nome}' depends on its own corridor surface; choose the existing ground surface."));
+        }
+        FUNDO.with(|f| f.set(f.get() + 1));
+        let r = self.civil_redesenhar_alinhamento_dentro(i, nome);
+        FUNDO.with(|f| f.set(f.get() - 1));
+        r
+    }
+
+    fn civil_redesenhar_alinhamento_dentro(&mut self, i: usize, nome: &str) -> Result<String, String> {
         let mut a = self.civil_al_ler(i, nome)?;
         let al = a.geometria().ok_or("Alignment without geometry.")?;
         let mut msgs = vec![format!("Length {:.3} m, stations {} to {}.", al.comprimento(), texto_da_estaca(al.estaca_inicial), texto_da_estaca(al.estaca_final()))];
@@ -548,6 +576,8 @@ impl OpenCADStudio {
             let (ga, gb) = g.faixa();
             let mut est: Vec<f64> = al.estacas(passo);
             if g.pivs.len() > 1 {
+                // Greide que passa do eixo não cria seções fora dele (revisão 19/11: dava volume a mais).
+                let (ga, gb) = (ga.max(al.estaca_inicial), gb.min(al.estaca_final()));
                 est.extend([ga, gb]);
                 est.retain(|e| *e >= ga - 1e-6 && *e <= gb + 1e-6);
                 est.sort_by(|a, b| a.total_cmp(b));
@@ -585,6 +615,13 @@ impl OpenCADStudio {
                 Ok(m) => msgs.push(m),
                 Err(e) => msgs.push(format!("Volume table not drawn: {e}")),
             }
+        } else if a.materiais.is_some() {
+            // Sem tabela: os totais do Toolspace acompanham assim mesmo (spec 004 R4).
+            let u = self.civil_materiais_linhas(i, &a).ok().and_then(|l| l.last().copied());
+            if let Some(m) = a.materiais.as_mut() {
+                m.totais = u.map(|u| (u.acum_corte, u.acum_aterro));
+            }
+            self.civil_al_gravar(i, &a, false)?;
         }
         Ok(msgs.join(" "))
     }

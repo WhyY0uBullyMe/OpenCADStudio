@@ -1,4 +1,4 @@
-//! Compute Materials (spec Hydrus `docs/specs/agral-cad/004-compute-materials`): corte e aterro entre duas
+//! Compute Materials (spec Hydrus `docs/agral/specs/004-compute-materials`): corte e aterro entre duas
 //! superfícies nas linhas de seção de um eixo, volumes pelo método das áreas médias e fatores de empolamento.
 
 use crate::alinhamento::Alinhamento;

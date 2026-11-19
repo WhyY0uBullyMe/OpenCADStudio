@@ -79,6 +79,9 @@ pub fn ler_piv(t: &str) -> Option<(f64, f64, f64)> {
         .map(|x| x.parse::<f64>())
         .collect::<Result<_, _>>()
         .ok()?;
+    if v.iter().any(|x: &f64| !x.is_finite()) {
+        return None;
+    }
     match v.as_slice() {
         [e, z] => Some((*e, *z, 0.0)),
         [e, z, l] if *l >= 0.0 => Some((*e, *z, *l)),
@@ -147,5 +150,7 @@ mod testes {
         assert_eq!(super::ler_piv("120,955.5"), Some((120.0, 955.5, 0.0)));
         assert_eq!(super::ler_piv("120;955,5;40"), Some((120.0, 955.5, 40.0)));
         assert_eq!(super::ler_piv("abc"), None);
+        assert_eq!(super::ler_piv("nan,100"), None, "NaN não entra no greide");
+        assert_eq!(super::ler_piv("10,inf"), None);
     }
 }

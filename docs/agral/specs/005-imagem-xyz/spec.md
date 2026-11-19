@@ -9,7 +9,7 @@ fora dos termos de uso do Google (DECISOES_E_REGRAS.md, 18/11). O programa aceit
   XYZ (`{x}`, `{y}`, `{z}`; opções prontas: Google Satélite, Esri World Imagery, OpenStreetMap). Gravado no DWG.
 - R2 `GEOMAP` [Aerial/Off]: Aerial traz a imagem da área vista na tela; Off apaga as imagens trazidas.
 - R3 `GEOMAPIMAGE`: imagem de uma área escolhida com dois cantos.
-- R4 A imagem é reprojetada ponto a ponto de Web Mercator para UTM (fica no lugar certo, sem giro), num PNG ao lado
+- R4 A imagem é reprojetada ponto a ponto de Web Mercator para UTM (fica no lugar certo, sem giro), num JPEG (qualidade 85) ao lado
   do desenho (ou na pasta do programa se o desenho não foi salvo), como IMAGE no fundo, camada C-IMAGEM.
 - R5 Download em segundo plano, com aviso na linha de comando; zoom escolhido pela resolução da tela, com limite de
   tamanho; falha de rede vira mensagem, não trava o programa.

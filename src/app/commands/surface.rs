@@ -21,7 +21,7 @@ fn e_polilinha_fechada(e: &document::EntityType) -> bool {
 }
 
 fn ler_ponto(t: &str) -> Option<[f64; 3]> {
-    let v: Vec<f64> = t.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    let v: Vec<f64> = t.split(',').filter_map(|x| x.trim().parse::<f64>().ok()).filter(|v| v.is_finite()).collect();
     match v.len() {
         2 => Some([v[0], v[1], 0.0]),
         3 => Some([v[0], v[1], v[2]]),
@@ -486,7 +486,14 @@ impl OpenCADStudio {
                 let (Some(nome), Some(tipo), Some(arg)) = (args.first(), args.get(1), args.get(2)) else { return Some(Task::none()) };
                 let mut item = ItemDwg::novo(tipo, "");
                 if *tipo == "EDIT_RAISELOWER" {
-                    item.valor = arg.parse().unwrap_or(0.0);
+                    // Só número de verdade (sem NaN e inf, revisão 19/11).
+                    match arg.replace(',', ".").parse::<f64>().ok().filter(|v| v.is_finite()) {
+                        Some(v) => item.valor = v,
+                        None => {
+                            self.command_line.push_error("Type the amount in meters.");
+                            return Some(Task::none());
+                        }
+                    }
                 } else if let Some(p) = ler_ponto(arg) {
                     item.pontos.push(p);
                 } else {
@@ -635,7 +642,7 @@ impl OpenCADStudio {
                         self.tabs[i].active_cmd = Some(Box::new(c));
                         return Task::none();
                     }
-                    Modo::Elevar(n) => match st.comprimento.trim().replace(',', ".").parse::<f64>() {
+                    Modo::Elevar(n) => match st.comprimento.trim().replace(',', ".").parse::<f64>().map_err(|_| ()).and_then(|v| if v.is_finite() { Ok(v) } else { Err(()) }) {
                         Ok(v) => {
                             let n = n.clone();
                             self.close_active_modal();

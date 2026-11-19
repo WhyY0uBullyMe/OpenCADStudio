@@ -4,8 +4,8 @@ Pedido do JP (18/11): "tem que lançar um compute materials", com opção de cá
 para tocar os projetos agora; incrementar depois. Seções com a aparência do template dele (TEMPLATE_JP.dwt).
 
 ## Requisitos
-- R1 `COMPUTEMATERIALS [eixo] [base] [comparar] [fator corte] [fator aterro]`. Sem argumentos pergunta cada um com
-  padrão: o eixo único, a superfície do eixo como base, a superfície do corredor (`<EIXO>-CORR`) como comparação,
+- R1 `COMPUTEMATERIALS [eixo] [base] [comparar] [fator corte] [fator aterro]`. Sem argumentos abre a janela (como
+  no AutoCAD; `-COMPUTEMATERIALS` pergunta na linha de comando), com os padrões: o eixo único, a superfície do eixo como base, a superfície do corredor (`<EIXO>-CORR`) como comparação,
   fatores 1. Qualquer par de superfícies serve (terreno x projeto, terreno x limpeza).
 - R2 Em cada linha de seção do eixo (as de `CREATESECTIONS`): área de corte (comparação abaixo da base) e de aterro
   (comparação acima), só onde as duas superfícies existem.

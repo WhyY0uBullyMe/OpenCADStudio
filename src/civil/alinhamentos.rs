@@ -186,7 +186,8 @@ impl AlinhamentoDwg {
         if let Some(p) = self.corredor {
             chave(&mut e, "corridor");
             e.push(XRecordEntry::double(40, p));
-            let (va, vc) = self.volumes.unwrap_or((f64::NAN, f64::NAN));
+            // Sem volumes: -1 (volume nunca é negativo). Antes era NaN, que o DXF escreve como texto inválido.
+            let (va, vc) = self.volumes.unwrap_or((-1.0, -1.0));
             e.push(XRecordEntry::double(41, va));
             e.push(XRecordEntry::double(42, vc));
         }
@@ -336,7 +337,7 @@ impl AlinhamentoDwg {
                 "corridor" => {
                     a.corredor = Some(num(val(k)?));
                     let (va, vc) = (num(val(k + 1)?), num(val(k + 2)?));
-                    a.volumes = (va.is_finite() && vc.is_finite()).then_some((va, vc));
+                    a.volumes = (va.is_finite() && vc.is_finite() && va >= 0.0 && vc >= 0.0).then_some((va, vc));
                     k += 3;
                 }
                 "materials" => {

@@ -856,3 +856,45 @@ fn imagem_de_satelite_sem_rede() {
     command(&mut app, "GEOMAP OFF");
     assert!(!app.tabs[i].scene.document.entities().any(|e| matches!(e, EntityType::RasterImage(_))));
 }
+
+/// Revisão 19/11: greide que passa do fim do eixo não aumenta o volume do corredor; o eixo não aceita o próprio
+/// corredor como terreno da vista de perfil.
+#[test]
+fn revisao_greide_alem_do_eixo_e_corredor_proprio() {
+    let dir = std::env::temp_dir().join(format!("agral_rev_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let arq = dir.join("plano100.txt");
+    let mut t = String::new();
+    let mut n = 1;
+    for x in (0..=200).step_by(50) {
+        for y in (0..=200).step_by(50) {
+            t.push_str(&format!("{n},{y},{x},100.000,TN\n"));
+            n += 1;
+        }
+    }
+    std::fs::write(&arq, t).unwrap();
+    let mut app = OpenCADStudio::new_for_test();
+    let _ = app.automation_op(r#"{"op":"new"}"#);
+    let i = app.active_tab;
+    command(&mut app, "CREATESURFACE TN");
+    command(&mut app, &format!("ADDSURFACEPOINTFILE TN \"{}\" PNEZD", arq.display()));
+    app.tabs[i].scene.ensure_layer("EIXO");
+    let mut p = LwPolyline::new();
+    p.vertices = vec![LwVertex::new(Vector2::new(20.0, 100.0)), LwVertex::new(Vector2::new(180.0, 100.0))];
+    p.common.layer = "EIXO".into();
+    app.tabs[i].scene.add_entities(vec![EntityType::LwPolyline(p)]);
+    command(&mut app, "CREATEALIGNMENT EIXO1 EIXO");
+    command(&mut app, "CREATEPROFILEVIEW EIXO1 TN 10 0,-300");
+    // Greide de 0 a 400 num eixo de 160 m.
+    command(&mut app, "CREATEPROFILE EIXO1 0,110 400,110");
+    command(&mut app, "CREATEASSEMBLY EIXO1 6 0 L 3 2 8 3 1");
+    command(&mut app, "CREATECORRIDOR EIXO1 20");
+    let (va, _) = app.civil_al_ler(i, "EIXO1").unwrap().volumes.unwrap();
+    let esperado = 322.0 * 160.0;
+    assert!((va - esperado).abs() / esperado < 0.005, "aterro {va}: só os 160 m do eixo");
+    command(&mut app, "CREATEPROFILEVIEW EIXO1 EIXO1-CORR 10 0,-300");
+    assert_eq!(app.civil_al_ler(i, "EIXO1").unwrap().superficie, "TN", "o próprio corredor não vira terreno");
+    // Intervalo minúsculo não trava: é recusado.
+    command(&mut app, "ALIGNMENTSTATIONS EIXO1 0 0.0001");
+    assert_eq!(app.civil_al_ler(i, "EIXO1").unwrap().intervalo, 20.0);
+}

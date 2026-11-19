@@ -56,3 +56,47 @@ pub fn view<'a>(m: &'a MontagemPendente, agora: Instant) -> Element<'a, Message>
     });
     container(cartao).align_right(Fill).align_bottom(Fill).padding([70, 24]).into()
 }
+
+/// Download da imagem de satélite: barra com a fração de tiles prontos (spec 005 R5).
+pub fn view_imagem<'a>(b: &'a crate::app::civil_geo::Baixando, agora: Instant) -> Element<'a, Message> {
+    let s = agora.saturating_duration_since(b.inicio).as_secs_f32();
+    let feitos = b.feitos.load(Ordering::Relaxed).min(b.total);
+    let frac = if b.total == 0 { 1.0 } else { feitos as f32 / b.total as f32 };
+    let barra = container(
+        container(Space::new().width(Length::Fixed((TRILHO * frac).max(4.0))).height(Length::Fixed(5.0))).style(|t: &Theme| {
+            container::Style {
+                background: Some(Background::Color(t.palette().primary.base.color)),
+                border: Border { radius: 2.5.into(), ..Default::default() },
+                ..Default::default()
+            }
+        }),
+    )
+    .width(Length::Fixed(TRILHO))
+    .style(|t: &Theme| container::Style {
+        background: Some(Background::Color(t.palette().background.strong.color)),
+        border: Border { radius: 2.5.into(), ..Default::default() },
+        ..Default::default()
+    });
+    let etapa = if feitos < b.total { format!("{feitos} of {} tiles", b.total) } else { "Reprojecting to UTM".to_string() };
+    let cartao = container(
+        column![
+            text("Downloading satellite imagery").size(13),
+            barra,
+            text(format!("{etapa}... {s:.0} s")).size(11).style(|t: &Theme| iced::widget::text::Style {
+                color: Some(crate::ui::style::readable::muted_text(t)),
+            }),
+        ]
+        .spacing(8),
+    )
+    .padding([12, 16])
+    .width(Length::Fixed(LARGURA))
+    .style(|t: &Theme| {
+        let p = t.palette();
+        container::Style {
+            background: Some(Background::Color(p.background.weak.color)),
+            border: Border { color: p.primary.base.color, width: 1.0, radius: 6.0.into() },
+            ..Default::default()
+        }
+    });
+    container(cartao).align_right(Fill).align_bottom(Fill).padding([70, 24]).into()
+}

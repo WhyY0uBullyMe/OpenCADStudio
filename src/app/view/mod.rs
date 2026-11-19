@@ -3761,9 +3761,10 @@ bg={bg_ms:.1}ms n={view_count}"
             iced::widget::Space::new().width(0).height(0).into()
         };
 
-        let civil_progresso_layer: Element<'_, Message> = match self.civil_montando.as_ref() {
-            Some(m) => crate::ui::window::civil_progresso::view(m, iced::time::Instant::now()),
-            None => iced::widget::Space::new().width(0).height(0).into(),
+        let civil_progresso_layer: Element<'_, Message> = match (self.civil_montando.as_ref(), self.civil_baixando.as_ref()) {
+            (Some(m), _) => crate::ui::window::civil_progresso::view(m, iced::time::Instant::now()),
+            (None, Some(b)) => crate::ui::window::civil_progresso::view_imagem(b, iced::time::Instant::now()),
+            (None, None) => iced::widget::Space::new().width(0).height(0).into(),
         };
 
         // A minimized ribbon's popup lies over the drawing, under dropdowns.
@@ -3983,7 +3984,8 @@ impl OpenCADStudio {
             .opening
             .as_ref()
             .is_some_and(|progress| progress.recovery_error.is_none())
-            || self.civil_montando.is_some();
+            || self.civil_montando.is_some()
+            || self.civil_baixando.is_some();
         let frames = if needs_frames {
             crate::app::tool_windows::main_window_frames().map(Message::Tick)
         } else {

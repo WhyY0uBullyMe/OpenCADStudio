@@ -14,14 +14,15 @@ use agral_civil_motor::alinhamento::Piv;
 use iced::Task;
 
 fn ponto2(t: &str) -> Option<[f64; 2]> {
-    let v: Vec<f64> = t.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    let v: Vec<f64> = t.split(',').filter_map(|x| x.trim().parse::<f64>().ok()).filter(|v| v.is_finite()).collect();
     (v.len() >= 2).then(|| [v[0], v[1]])
 }
 
+/// Número digitado (vírgula ou ponto); "nan" e "inf" não valem (revisão 19/11: entravam na geometria).
 fn num(t: Option<&&str>, padrao: f64) -> Option<f64> {
     match t {
         None => Some(padrao),
-        Some(t) => t.replace(',', ".").parse().ok(),
+        Some(t) => t.replace(',', ".").parse::<f64>().ok().filter(|v| v.is_finite()),
     }
 }
 
@@ -232,7 +233,7 @@ impl OpenCADStudio {
                 let args: Vec<&str> = args.iter().copied().filter(|a| !a.starts_with("+EDIT=")).collect();
                 let r = match args.split_first() {
                     Some((eixo, resto)) => {
-                        let est: Option<Vec<f64>> = resto.iter().map(|t| t.replace(',', ".").parse::<f64>().ok()).collect();
+                        let est: Option<Vec<f64>> = resto.iter().map(|t| t.replace(',', ".").parse::<f64>().ok().filter(|v| v.is_finite())).collect();
                         match est {
                             Some(e) => self.civil_estacas_das_secoes(i, eixo, e),
                             None => Err("Stations must be numbers.".into()),
@@ -285,11 +286,11 @@ impl OpenCADStudio {
             "_ALIGNFROMPOINTS" => {
                 let r = (|| {
                     let [nome, raio, pts] = args else { return Err("Usage: _ALIGNFROMPOINTS name radius x,y;x,y;...".to_string()) };
-                    let raio: f64 = raio.parse().map_err(|_| "Invalid radius.".to_string())?;
+                    let raio: f64 = raio.parse::<f64>().ok().filter(|r| r.is_finite() && *r >= 0.0).ok_or_else(|| "Invalid radius.".to_string())?;
                     let pis: Vec<[f64; 2]> = pts
                         .split(';')
                         .map(|p| {
-                            let v: Vec<f64> = p.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                            let v: Vec<f64> = p.split(',').filter_map(|x| x.trim().parse::<f64>().ok()).filter(|v| v.is_finite()).collect();
                             (v.len() >= 2).then(|| [v[0], v[1]]).ok_or_else(|| format!("Invalid point '{p}'."))
                         })
                         .collect::<Result<_, _>>()?;

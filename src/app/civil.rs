@@ -640,7 +640,10 @@ impl OpenCADStudio {
         let (tx, rx) = iced::futures::channel::oneshot::channel();
         std::thread::spawn(move || {
             let sumidas = entrada.sumidas;
-            let m = montar_entrada(entrada, &fase);
+            // Uma falha dentro da montagem não pode deixar a fila travada para sempre (revisão 19/11): vira aviso.
+            let m = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| montar_entrada(entrada, &fase))).unwrap_or_else(|_| {
+                MontagemSuperficie { avisos: vec!["the surface build failed (internal error); check the source data".into()], ..Default::default() }
+            });
             let _ = tx.send(MontagemPronta(std::sync::Arc::new(std::sync::Mutex::new(Some((m, sumidas))))));
         });
         self.civil_tarefas.push(iced::Task::perform(async move { rx.await.ok() }, |r| match r {
@@ -664,6 +667,9 @@ impl OpenCADStudio {
                 }
                 Ok(atual) => {
                     let t_ler = std::time::Duration::ZERO;
+                    // O desenho novo da superfície entra no histórico (revisão 19/11: antes ficava de fora e o
+                    // desfazer deixava o bloco órfão).
+                    self.push_undo_snapshot(i, "REBUILDSURFACE");
                     match self.civil_desenhar(i, atual, m, sumidas, p.inicio, t_ler) {
                         Ok(msg) => self.command_line.push_info(&msg),
                         Err(e) => self.command_line.push_error(&e),
@@ -996,6 +1002,7 @@ pub(crate) struct EntradaSuperficie {
     sumidas: usize,
 }
 
+#[derive(Default)]
 pub(crate) struct MontagemSuperficie {
     pub tin: Tin,
     /// Avisos da montagem (arquivo sumido, linhas que não leram).
@@ -1122,7 +1129,26 @@ pub(crate) fn montar_entrada(e: EntradaSuperficie, fase: &std::sync::atomic::Ato
     MontagemSuperficie { tin, avisos, cruzamentos_achados, ligacoes, corrigidos, emendas, restantes }
 }
 
+/// Arquivo indicado dentro do DWG (LandXML, pontos) só é lido se for um arquivo comum, local e até 2 GB
+/// (revisão 19/11): caminho de rede (\\servidor\...) mandaria a senha do Windows para fora; dispositivo ou arquivo
+/// enorme travaria o programa.
+fn arquivo_aceito(caminho: &str) -> Result<(), String> {
+    let c = caminho.trim();
+    if c.starts_with("\\\\") || c.starts_with("//") {
+        return Err(format!("{caminho}: network paths are not read; copy the file to a local folder."));
+    }
+    let m = std::fs::metadata(c).map_err(|e| format!("{caminho} could not be read ({e})."))?;
+    if !m.is_file() {
+        return Err(format!("{caminho} is not a regular file."));
+    }
+    if m.len() > 2 * 1024 * 1024 * 1024 {
+        return Err(format!("{caminho} is larger than 2 GB."));
+    }
+    Ok(())
+}
+
 fn ler_landxml(caminho: &str, nome: &str) -> Result<Tin, String> {
+    arquivo_aceito(caminho)?;
     let xml = std::fs::read_to_string(caminho).map_err(|e| format!("LandXML {caminho} could not be read ({e})."))?;
     let todas = agral_civil_motor::landxml::ler_superficies(&xml).map_err(|e| format!("LandXML {caminho}: {e}"))?;
     todas
@@ -1149,8 +1175,21 @@ fn ler_pontos_do_arquivo(
     formato: &str,
 ) -> Result<(Vec<[f64; 3]>, Vec<agral_civil_motor::pontos::LinhaRuim>), String> {
     let f = formato_de_pontos(formato).ok_or_else(|| format!("Unknown point file format '{formato}'."))?;
+    arquivo_aceito(caminho).map_err(|e| format!("{e} Its points were left out."))?;
     let bytes = std::fs::read(caminho).map_err(|e| format!("Point file {caminho} could not be read ({e}); its points were left out."))?;
     let texto = String::from_utf8(bytes).unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect());
     let r = agral_civil_motor::pontos::ler_arquivo_de_pontos(&texto, f);
     Ok((r.pontos.into_iter().map(|p| p.xyz).collect(), r.linhas_ruins))
+}
+
+#[cfg(test)]
+mod testes_arquivo {
+    #[test]
+    fn caminho_de_rede_e_dispositivo_nao_sao_lidos() {
+        assert!(super::arquivo_aceito("\\\\servidor\\pasta\\pontos.txt").is_err());
+        assert!(super::arquivo_aceito("//servidor/pasta/pontos.txt").is_err());
+        assert!(super::arquivo_aceito("/dev/zero").is_err());
+        assert!(super::arquivo_aceito(env!("CARGO_MANIFEST_DIR")).is_err(), "pasta não é arquivo");
+        assert!(super::arquivo_aceito(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).is_ok());
+    }
 }

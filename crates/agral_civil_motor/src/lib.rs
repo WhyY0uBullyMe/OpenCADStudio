@@ -1,7 +1,7 @@
 //! Agral Civil: motor de superfície do Agral CAD.
 //!
 //! Sem tela e sem o Open CAD Studio: só `std` e `spade`. A ligação com o desenho fica no pacote `agral.civil`.
-//! Spec: Hydrus `docs/specs/agral-cad/001-superficie/spec.md`.
+//! Spec: Hydrus `docs/agral/specs/001-superficie/spec.md`.
 
 pub mod alinhamento;
 pub mod correcao;

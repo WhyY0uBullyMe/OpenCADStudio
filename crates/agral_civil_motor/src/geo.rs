@@ -135,10 +135,15 @@ pub fn planejar(e0: f64, n0: f64, e1: f64, n1: f64, fuso: Fuso, max_px: u32, max
             lo = (lo.0.min(x), lo.1.min(y));
             hi = (hi.0.max(x), hi.1.max(y));
         }
-        let tiles: Vec<(u32, u32)> = (lo.0.floor() as u32..=hi.0.floor() as u32)
-            .flat_map(|x| (lo.1.floor() as u32..=hi.1.floor() as u32).map(move |y| (x, y)))
-            .collect();
-        if tiles.len() <= max_tiles || z == 0 {
+        if !(lo.0.is_finite() && lo.1.is_finite() && hi.0.is_finite() && hi.1.is_finite()) {
+            return None;
+        }
+        // Conta antes de montar a lista: uma área enorme no zoom alto daria bilhões de tiles (revisão 19/11).
+        let (x0, x1, y0, y1) = (lo.0.floor().max(0.0), hi.0.floor(), lo.1.floor().max(0.0), hi.1.floor());
+        let total = (x1 - x0 + 1.0).max(0.0) * (y1 - y0 + 1.0).max(0.0);
+        if total <= max_tiles as f64 || z == 0 {
+            let tiles: Vec<(u32, u32)> =
+                (x0 as u32..=x1 as u32).flat_map(|x| (y0 as u32..=y1 as u32).map(move |y| (x, y))).collect();
             return Some(PlanoImagem { z, largura, altura, tiles });
         }
         z -= 1;
@@ -256,5 +261,8 @@ mod testes {
         assert_eq!(&img[k..k + 4], &[255, 0, 0, 255]);
         // O canto de cima à esquerda (300 m a oeste, 200 m ao norte) está fora do tile do ponto no zoom escolhido.
         assert_eq!(&img[0..4], &[0, 0, 255, 255]);
+        // Área de 1000 km: o plano desce o zoom sem montar a lista gigante e fica no limite de tiles.
+        let p = planejar(ep - 500_000.0, np - 500_000.0, ep + 500_000.0, np + 500_000.0, f, 4096, 400, 19).unwrap();
+        assert!(p.tiles.len() <= 400 && p.z < 10, "{} tiles no zoom {}", p.tiles.len(), p.z);
     }
 }

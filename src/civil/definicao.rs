@@ -142,7 +142,8 @@ impl SuperficieDwg {
                 (false, 0.0)
             };
             let k = inteiro(prox(91)?)?;
-            let mut fontes = Vec::with_capacity(k as usize);
+            // Contagem vem do arquivo: sem reservar memória por ela (negativo ou enorme num DWG estragado).
+            let mut fontes = Vec::new();
             for _ in 0..k {
                 fontes.push(handle(prox(330)?)?);
             }
@@ -200,6 +201,26 @@ mod testes {
         };
         let e = s.para_xrecord();
         assert_eq!(SuperficieDwg::de_xrecord("TN", &e).unwrap(), s);
+    }
+
+    /// Revisão 19/11: contagem negativa ou enorme num DWG estragado não derruba o programa.
+    #[test]
+    fn contagem_estragada_nao_derruba() {
+        for k in [-1, i32::MAX] {
+            let e = vec![
+                XRecordEntry::string(1, MARCA),
+                XRecordEntry::int16(70, 1),
+                XRecordEntry::string(300, "TN"),
+                XRecordEntry::double(40, 0.0),
+                XRecordEntry::int16(71, 0),
+                XRecordEntry::new(90, XRecordValue::Int32(1)),
+                XRecordEntry::string(2, "CONTOURS"),
+                XRecordEntry::int16(72, 1),
+                XRecordEntry::new(91, XRecordValue::Int32(k)),
+                XRecordEntry::new(92, XRecordValue::Int32(0)),
+            ];
+            let _ = SuperficieDwg::de_xrecord("S", &e);
+        }
     }
 
     #[test]

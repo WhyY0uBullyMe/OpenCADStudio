@@ -27,6 +27,13 @@ impl Clone for ImagemPronta {
     }
 }
 
+/// Download em andamento: começo, tiles prontos e o total (para o cartão de progresso).
+pub(crate) struct Baixando {
+    pub inicio: iced::time::Instant,
+    pub feitos: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub total: usize,
+}
+
 /// Baixa um tile e devolve RGBA 256 x 256.
 fn baixar_tile(url: &str) -> Result<Vec<u8>, String> {
     let agente = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(20))).build().new_agent();
@@ -99,7 +106,12 @@ impl OpenCADStudio {
         if !self.civil_assincrono {
             return Ok(format!("Imagery planned: {resumo}."));
         }
+        if self.civil_baixando.is_some() {
+            return Err("Imagery is already being downloaded; wait for it to finish.".into());
+        }
         let tab = self.tabs[i].id;
+        let feitos = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        self.civil_baixando = Some(Baixando { inicio: iced::time::Instant::now(), feitos: feitos.clone(), total: plano.tiles.len() });
         let (tx, rx) = iced::futures::channel::oneshot::channel();
         std::thread::spawn(move || {
             // Baixa os tiles em 8 linhas ao mesmo tempo, depois monta.
@@ -110,6 +122,7 @@ impl OpenCADStudio {
                     sc.spawn(|| loop {
                         let Some((x, y)) = fila.lock().ok().and_then(|mut f| f.pop()) else { break };
                         let r = baixar_tile(&endereco(&geo.url, x, y, plano.z));
+                        feitos.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         if let Ok(mut p) = prontos.lock() {
                             p.insert((x, y), r);
                         }
@@ -126,13 +139,15 @@ impl OpenCADStudio {
         });
         self.civil_tarefas.push(iced::Task::perform(async move { rx.await.ok() }, |r| match r {
             Some(m) => Message::CivilImagemPronta(m),
-            None => Message::Noop,
+            // Linha de download perdida: libera o cartão.
+            None => Message::CivilImagemPronta(ImagemPronta(std::sync::Arc::new(std::sync::Mutex::new(None)))),
         }));
         Ok(format!("Downloading imagery ({resumo})... you can keep working."))
     }
 
     /// O download terminou: grava a imagem e põe a imagem no fundo.
     pub(crate) fn civil_imagem_pronta(&mut self, p: ImagemPronta) -> iced::Task<Message> {
+        self.civil_baixando = None;
         let Some((tab, area, r, aviso)) = p.0.lock().ok().and_then(|mut g| g.take()) else { return iced::Task::none() };
         let Some(i) = self.tabs.iter().position(|t| t.id == tab) else { return iced::Task::none() };
         match r.and_then(|bytes| self.civil_inserir_imagem(i, area, &bytes)) {

@@ -62,6 +62,14 @@ Referência para trocar de agente (Claude Code, Codex ou outro) sem perder o que
     baixada em segundo plano (8 tiles ao mesmo tempo), gravada em JPEG na pasta `<desenho>_imagens` e posta no
     fundo, na camada C-IMAGEM. Testado com a imagem real de Goiânia (170 tiles, sem emendas). Grupo Geolocation na
     aba Civil.
+  - Feito (revisão geral, 19/11): três revisões independentes (erros e segurança, spec contra código, interface).
+    Corrigidos os achados de risco: DWG estragado derrubava o programa, GEOMAP com área enorme travava, superfície
+    montada em segundo plano fora do desfazer, fila de montagem travada por falha, arquivo do DWG lido de caminho de
+    rede ou gigante, volume a mais com greide além do eixo, eixo que se remontava sem fim pelo próprio corredor,
+    intervalos minúsculos que travavam, NaN digitado ou gravado no DWG, totais de materiais velhos, menus do
+    Toolspace com eixo errado, apagar eixo sem perguntar, janela que não recarregava ao trocar de eixo, Enter nas
+    janelas. Cartão de progresso com n/N tiles no download da imagem. Relatório e pendências em
+    `docs/agral/revisao-geral-19-11.md`.
 
 ### 18/11/2026 (Agral CAD, com o Claude)
 - **Retorno do JP sobre o teste no Windows:** "abre normal", mas "tá muito mal estruturado": foi feito um plugin no

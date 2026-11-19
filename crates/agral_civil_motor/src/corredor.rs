@@ -139,6 +139,10 @@ fn lado(
         if percorrido > a.alcance {
             return (Vec::new(), false);
         }
+        // No máximo 200 bermas por lado (revisão 19/11: berma de altura minúscula estourava o contador).
+        if k >= 200 {
+            return (Vec::new(), false);
+        }
         k += 1;
         pts.push((fim.0, fim.1, Codigo::BermaInterna(k)));
         let fim_berma = (fim.0 + sinal * a.largura_berma, fim.1);

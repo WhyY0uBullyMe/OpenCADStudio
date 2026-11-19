@@ -1000,6 +1000,8 @@ pub(super) struct OpenCADStudio {
     /// Na janela a montagem da superfície roda em segundo plano; no lote e nos testes, na hora.
     pub(crate) civil_assincrono: bool,
     pub(crate) civil_montando: Option<crate::app::civil::MontagemPendente>,
+    /// Agral CAD: download da imagem de satélite em andamento (cartão de progresso com n/N tiles).
+    pub(crate) civil_baixando: Option<crate::app::civil_geo::Baixando>,
     pub(crate) civil_fila: Vec<(u64, String)>,
     /// Tarefas que os serviços do civil pedem e o despacho devolve ao iced.
     pub(crate) civil_tarefas: Vec<Task<Message>>,
@@ -6429,6 +6431,7 @@ impl OpenCADStudio {
             civil_cota_tela: iced::Point::ORIGIN,
             civil_assincrono: false,
             civil_montando: None,
+            civil_baixando: None,
             civil_fila: Vec::new(),
             civil_tarefas: Vec::new(),
             drawing_properties: None,

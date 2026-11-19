@@ -1,4 +1,4 @@
-//! Compute Materials do Agral CAD (spec Hydrus `docs/specs/agral-cad/004-compute-materials`): corte e aterro entre
+//! Compute Materials do Agral CAD (spec Hydrus `docs/agral/specs/004-compute-materials`): corte e aterro entre
 //! duas superfícies nas linhas de seção do eixo, tabela de volumes no desenho e CSV para o Excel.
 
 use super::OpenCADStudio;
