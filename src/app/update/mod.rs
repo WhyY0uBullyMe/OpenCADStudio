@@ -951,6 +951,13 @@ impl OpenCADStudio {
                 }
                 return self.update(Message::CloseModal);
             }
+            // Agral CAD: Enter confirma a janela civil (o OK), como nos outros diálogos.
+            if self.active_modal == Some(super::ModalKind::Civil)
+                && (matches!(msg, Message::CommandFinalize)
+                    || matches!(&msg, Message::ShortcutPressed(key) if key.rsplit('+').next() == Some("ENTER") || key.rsplit('+').next() == Some("RETURN")))
+            {
+                return self.update(Message::Civil(crate::ui::window::civil_dialog::CivilMsg::Ok));
+            }
             if self.active_modal == Some(super::ModalKind::BlockDefinition)
                 && (matches!(msg, Message::CommandFinalize)
                     || matches!(&msg, Message::ShortcutPressed(key) if key.rsplit('+').next() == Some("ENTER") || key.rsplit('+').next() == Some("RETURN")))

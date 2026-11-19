@@ -640,8 +640,12 @@ fn desenho_da_planta(al: &Alinhamento, intervalo: f64) -> Vec<EntityType> {
         v.push(linha(a, b, CAMADA_ESTACA));
         let (_, dir) = al.ponto_na_estaca(e);
         let p = al.ponto_com_offset(e, -m - alt * 1.2);
-        // Rótulo perpendicular ao eixo, lendo da esquerda.
-        v.push(texto(texto_da_estaca(e), p, alt * 0.8, dir + std::f64::consts::FRAC_PI_2, true, CAMADA_ESTACA));
+        // Rótulo perpendicular ao eixo, sempre legível (nunca de cabeça para baixo, em eixo para oeste ou sul).
+        let mut rot = dir + std::f64::consts::FRAC_PI_2;
+        if rot.cos() < -1e-9 {
+            rot += std::f64::consts::PI;
+        }
+        v.push(texto(texto_da_estaca(e), p, alt * 0.8, rot, true, CAMADA_ESTACA));
     }
     v
 }
@@ -921,7 +925,7 @@ fn desenho_das_secoes(
                 .collect();
             out.extend(polilinha(&pts, CAMADA_CORREDOR));
             out.push(texto(
-                format!("Fill {:.2} m2  Cut {:.2} m2", c.area_aterro, c.area_corte),
+                format!("Cut {:.2} m²  Fill {:.2} m²", c.area_corte, c.area_aterro),
                 [x0 + largura / 2.0, y0 - alt * 1.8],
                 alt * 0.6,
                 0.0,

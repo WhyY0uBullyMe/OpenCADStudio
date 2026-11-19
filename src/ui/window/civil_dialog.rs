@@ -13,6 +13,8 @@ pub enum Modo {
     Curvas,
     Propriedades(String),
     Apagar(String),
+    /// Agral CAD: confirmação do DELETEALIGNMENT (apaga também perfil, seções, corredor e tabela).
+    ApagarEixo(String),
     /// Add Boundaries: tipo e descrição, depois a seleção.
     Limite(String),
     /// Raise/Lower Surface: quanto sobe (negativo desce).
@@ -125,7 +127,8 @@ impl State {
             nome: String::new(),
             descricao: String::new(),
             corrigir: true,
-            emendar: true,
+            // Mesmo padrão do -ADDSURFACECONTOURS (JOIN=0): emendar inventa trecho de curva, então é escolha do engenheiro.
+            emendar: false,
             folga: "5".into(),
             limitar_borda: false,
             comprimento: "0".into(),
@@ -140,6 +143,7 @@ impl State {
             Modo::Curvas => "Add Contour Data".into(),
             Modo::Propriedades(n) => format!("Surface Properties - {n}"),
             Modo::Apagar(_) => "Delete Surface".into(),
+            Modo::ApagarEixo(_) => "Delete Alignment".into(),
             Modo::Limite(n) => format!("Add Boundaries - {n}"),
             Modo::Elevar(n) => format!("Raise/Lower Surface - {n}"),
             Modo::Formulario(f) => f.titulo.clone(),
@@ -280,6 +284,11 @@ pub(crate) fn view(state: &State, sizing: crate::ui::modal::ModalSizing) -> Elem
                 corpo = corpo.push(text(format!("After OK: {}", p.trim_end_matches(':').to_lowercase())).size(12));
             }
         }
+        Modo::ApagarEixo(n) => {
+            corpo = corpo
+                .push(text(format!("Delete alignment '{n}'?")).size(13))
+                .push(text("Its profile view, sample lines and section views, corridor (and its surface lines) and volume table go too. The source polyline stays. Undo (U) brings it all back.").size(12));
+        }
         Modo::Apagar(n) => {
             corpo = corpo
                 .push(text(format!("Delete surface '{n}'?")).size(13))
@@ -289,7 +298,7 @@ pub(crate) fn view(state: &State, sizing: crate::ui::modal::ModalSizing) -> Elem
     if let Some(e) = &state.erro {
         corpo = corpo.push(text(e.as_str()).size(12).style(text::danger));
     }
-    let ok = if matches!(state.modo, Modo::Apagar(_)) { "Delete" } else { "OK" };
+    let ok = if matches!(state.modo, Modo::Apagar(_) | Modo::ApagarEixo(_)) { "Delete" } else { "OK" };
     let botoes = row![Space::new().width(Fill), dialog_button(ok.to_string(), m(CivilMsg::Ok), true), dialog_button("Cancel".to_string(), Message::CloseModal, false)].spacing(8);
     container(column![corpo, Space::new().height(Fill), botoes].spacing(10)).padding(16).width(sizing.width).into()
 }

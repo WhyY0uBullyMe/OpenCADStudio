@@ -1481,7 +1481,7 @@ pub fn title_bar_with<'a>(
         ));
         bar = bar.push(title_tip(
             title_button(title_icon(crate::ui::icons::AGRAL_STACK), Message::Dock(DockMsg::AgralStack(id))),
-            "Stack with / unstack from the pallets on this side".to_string(),
+            "Stack with / unstack from the palettes on this side".to_string(),
             tooltip::Position::Bottom,
         ));
     }

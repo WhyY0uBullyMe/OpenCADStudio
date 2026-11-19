@@ -226,14 +226,14 @@ fn linhas_dos_alinhamentos<'a>(alinhamentos: Vec<crate::civil::alinhamentos::Ali
         let comp = a.geometria().map_or(0.0, |g| g.comprimento());
         let (linha, aberta) = dobra(format!("{n}  ({comp:.1} m)"), &format!("a:{n}"), 2, fechados);
         col = col.push(com_menu(
-            linha.icon(icone(ic!("alinhamento"), false)).on_double_click(cmd(format!("REBUILDALIGNMENT {n}"))).view(),
+            linha.icon(icone(ic!("alinhamento"), false)).on_double_click(cmd(format!("ALIGNMENTSTATIONS {n}"))).view(),
             vec![
+                ("Alignment Stations...".into(), format!("ALIGNMENTSTATIONS {n}")),
                 ("Profile View...".into(), format!("CREATEPROFILEVIEW {n}")),
-                ("Design Profile (PVIs)...".into(), format!("CREATEPROFILE {n}")),
-                ("Sections...".into(), format!("CREATESECTIONS {n}")),
-                ("Stations...".into(), format!("-ALIGNMENTSTATIONS")),
+                ("Design Profile...".into(), format!("CREATEPROFILE {n}")),
+                ("Sample Lines...".into(), format!("CREATESECTIONS {n}")),
                 ("Rebuild".into(), format!("REBUILDALIGNMENT {n}")),
-                ("Delete".into(), format!("DELETEALIGNMENT {n}")),
+                ("Delete...".into(), format!("_DELETEALIGNMENTASK {n}")),
             ],
         ));
         if !aberta {
@@ -277,20 +277,20 @@ fn linhas_dos_alinhamentos<'a>(alinhamentos: Vec<crate::civil::alinhamentos::Ali
         };
         col = col.push(com_menu(
             kit::tree_row(asm).depth(3).caret_room().icon(icone(ic!("assembly"), a.assembly.is_none())).muted(a.assembly.is_none()).view(),
-            vec![("Edit...".into(), "CREATEASSEMBLY".into())],
+            vec![("Dam Assembly...".into(), format!("CREATEASSEMBLY {n}"))],
         ));
         let corr = match (a.corredor, a.volumes) {
-            (Some(p), Some((va, vc))) => format!("Corridor (every {p} m): fill {va:.0} m3, cut {vc:.0} m3"),
+            (Some(p), Some((va, vc))) => format!("Corridor (every {p} m): cut {vc:.0} m³, fill {va:.0} m³"),
             (Some(p), None) => format!("Corridor (every {p} m)"),
             _ => "Corridor (none)".to_string(),
         };
         col = col.push(com_menu(
             kit::tree_row(corr).depth(3).caret_room().icon(icone(ic!("corredor"), a.corredor.is_none())).muted(a.corredor.is_none()).view(),
-            vec![("Create / Rebuild...".into(), format!("CREATECORRIDOR {n}")), ("Rebuild".into(), format!("REBUILDCORRIDOR {n}"))],
+            vec![("Corridor Properties...".into(), format!("CREATECORRIDOR {n}")), ("Rebuild".into(), format!("REBUILDCORRIDOR {n}"))],
         ));
         let mat = match &a.materiais {
             Some(m) => match m.totais {
-                Some((c, f)) => format!("Materials ({} x {}): cut {c:.0} m3, fill {f:.0} m3, net {:.0} m3", m.base, m.comparar, c - f),
+                Some((c, f)) => format!("Materials ({} x {}): cut {c:.0} m³, fill {f:.0} m³, net {:.0} m³", m.base, m.comparar, c - f),
                 None => format!("Materials ({} x {})", m.base, m.comparar),
             },
             None => "Materials (none)".to_string(),

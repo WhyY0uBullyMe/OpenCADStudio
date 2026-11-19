@@ -558,6 +558,27 @@ impl OpenCADStudio {
             CivilMsg::Comprimento(v) => st.comprimento = v,
             CivilMsg::TipoLimite(v) => st.tipo_limite = Some(v),
             CivilMsg::Campo(k, v) => {
+                // Trocar o eixo (ou a superfície do Extract) recarrega a janela com os valores dele.
+                let recarregar = match &st.modo {
+                    Modo::Formulario(f) => {
+                        k == 0 && f.campos.first().is_some_and(|c| (c.rotulo == "Alignment" || c.rotulo == "Surface") && c.valor != v)
+                    }
+                    _ => false,
+                };
+                if recarregar {
+                    let verbo = match &st.modo {
+                        Modo::Formulario(f) => f.verbo.clone(),
+                        _ => String::new(),
+                    };
+                    if let Some(f) = self.civil_formulario(i, &verbo, Some(&v)) {
+                        if let Some(st) = self.civil_dialog.as_mut() {
+                            st.modo = Modo::Formulario(f);
+                            st.erro = None;
+                        }
+                        return Task::none();
+                    }
+                }
+                let Some(st) = self.civil_dialog.as_mut() else { return Task::none() };
                 if let Modo::Formulario(f) = &mut st.modo {
                     if let Some(c) = f.campos.get_mut(k) {
                         c.valor = v;
@@ -595,6 +616,7 @@ impl OpenCADStudio {
                     Modo::Formulario(_) => Ok(None),
                     Modo::Criar => self.civil_criar(i, &nome, &descricao, &estilo).map(Some),
                     Modo::Apagar(n) => self.civil_apagar(i, n).map(Some),
+                    Modo::ApagarEixo(n) => self.civil_apagar_alinhamento(i, n).map(Some),
                     Modo::Propriedades(n) => {
                         let c = st.comprimento.trim().replace(',', ".");
                         match c.parse::<f64>() {

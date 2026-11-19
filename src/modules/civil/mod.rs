@@ -100,7 +100,7 @@ impl CadModule for CivilModule {
                         )),
                         RibbonItem::LargeTool(ferramenta(
                             "CREATESECTIONS",
-                            "Sections",
+                            "Sample\nLines",
                             include_bytes!("../../../assets/icons/civil_sections.svg"),
                         )),
                     ],
@@ -320,17 +320,17 @@ impl CadModule for HomeModule {
                     tools: vec![
                         RibbonItem::LargeTool(ferramenta("CREATEALIGNMENTENTITIES", "Alignment\nfrom Objects", ic("alignobjects"))),
                         RibbonItem::Tool(ferramenta("CREATEALIGNMENTLAYOUT", "Alignment Layout", ic("alignlayout"))),
-                        RibbonItem::LargeTool(ferramenta("CREATEPROFILE", "Profile", ic("profile"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEPROFILE", "Design\nProfile", ic("profile"))),
                         RibbonItem::Tool(ferramenta("EDITPROFILE", "Edit Profile", ic("editprofile"))),
-                        RibbonItem::LargeTool(ferramenta("CREATEASSEMBLY", "Assembly", ic("assembly"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEASSEMBLY", "Dam\nAssembly", ic("assembly"))),
                         RibbonItem::LargeTool(ferramenta("CREATECORRIDOR", "Corridor", ic("corridor"))),
                     ],
                 },
                 RibbonGroup {
                     title: "Profile & Section Views",
                     tools: vec![
-                        RibbonItem::Tool(ferramenta("CREATEPROFILEVIEW", "Profile View", ic("profileview"))),
-                        RibbonItem::Tool(ferramenta("CREATESECTIONS", "Section Views", ic("sections"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEPROFILEVIEW", "Profile\nView", ic("profileview"))),
+                        RibbonItem::LargeTool(ferramenta("CREATESECTIONS", "Sample\nLines", ic("sections"))),
                     ],
                 },
             ];
@@ -420,7 +420,7 @@ impl CadModule for ProfileViewCtxModule {
                 RibbonGroup {
                     title: "Modify View",
                     tools: vec![
-                        RibbonItem::LargeTool(ferramenta("CREATEPROFILEVIEW", "Profile View\nProperties", icone!("civil_profileview"))),
+                        RibbonItem::LargeTool(ferramenta("CREATEPROFILEVIEW", "Create /\nMove View", icone!("civil_profileview"))),
                         RibbonItem::LargeTool(ferramenta("REBUILDALIGNMENT", "Rebuild", icone!("civil_rebuild"))),
                     ],
                 },
@@ -460,7 +460,7 @@ impl CadModule for SectionsCtxModule {
                 RibbonGroup {
                     title: "Sample Lines",
                     tools: vec![
-                        RibbonItem::LargeTool(ferramenta("CREATESECTIONS", "Sample Line\nSettings", icone!("civil_sections"))),
+                        RibbonItem::LargeTool(ferramenta("CREATESECTIONS", "Sample\nLines", icone!("civil_sections"))),
                         RibbonItem::LargeTool(ferramenta("EDITSAMPLELINES", "Edit Sample\nLines", icone!("civil_editsamplelines"))),
                         RibbonItem::LargeTool(ferramenta("SAMPLEMORESOURCES", "Sample More\nSources", icone!("civil_samplesources"))),
                     ],

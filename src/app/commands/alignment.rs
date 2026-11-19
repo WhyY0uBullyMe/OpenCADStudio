@@ -582,6 +582,11 @@ impl OpenCADStudio {
                     }
                 }
             }
+            // Do menu do Toolspace: pergunta antes de apagar.
+            "_DELETEALIGNMENTASK" => match self.civil_al_escolher(i, args.first().copied()) {
+                Ok(n) => self.civil_abrir(crate::ui::window::civil_dialog::State::novo(crate::ui::window::civil_dialog::Modo::ApagarEixo(n))),
+                Err(e) => self.command_line.push_error(&e),
+            },
             "DELETEALIGNMENT" => {
                 let r = match args.first() {
                     Some(n) => self.civil_apagar_alinhamento(i, n),

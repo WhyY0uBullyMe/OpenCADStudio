@@ -427,7 +427,7 @@ fn corredor_de_barragem_em_terreno_plano() {
     // Seções mostram o gabarito e a área.
     command(&mut app, "CREATESECTIONS EIXO1 40 50 50 3 400,0");
     let sec = textos_do_bloco(&app, "AGRAL_SECOES_EIXO1");
-    assert!(sec.iter().any(|t| t.starts_with("Fill 322.0")), "área de aterro na seção: {sec:?}");
+    assert!(sec.iter().any(|t| t.contains("Fill 322.0")), "área de aterro na seção: {sec:?}");
     // Mudou o greide: o corredor acompanha.
     command(&mut app, "CREATEPROFILE EIXO1 0,108 160,108");
     let (va2, _) = app.civil_al_ler(i, "EIXO1").unwrap().volumes.unwrap();
@@ -683,7 +683,8 @@ fn janelas_de_configuracao() {
     };
     assert_eq!(campos, vec!["EIXO1", "TN", "10"]);
     let _ = app.update(Message::Civil(CivilMsg::Campo(2, "5".into())));
-    let _ = app.update(Message::Civil(CivilMsg::Ok));
+    // Enter confirma (como o OK).
+    let _ = app.update(Message::ShortcutPressed("ENTER".into()));
     assert!(app.civil_dialog.is_none() || app.active_modal.is_none(), "fechou");
     assert!(app.tabs[i].active_cmd.as_ref().unwrap().prompt().contains("lower left corner"));
     digitar(&mut app, "0,-300");
